@@ -1,3 +1,8 @@
+Biblioteca
+/
+Inventario.jsx
+
+
 import { useEffect, useRef, useState } from 'react';
 
 import {
@@ -753,14 +758,6 @@ function Inventario() {
                             {guardando ? 'Guardando...' : 'Registrar producto'}
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={limpiarFormulario}
-                            disabled={guardando || accionando}
-                            className="rounded-xl border border-slate-700 px-6 py-3 font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:opacity-60"
-                        >
-                            Limpiar
-                        </button>
                     </div>
                 </form>
             </div>
