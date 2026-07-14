@@ -357,7 +357,7 @@ function Jornadas() {
                             value={nuevoPuesto}
                             onChange={(event) => setNuevoPuesto(event.target.value)}
                             className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-500"
-                        >
+                        />
                     </div>
 
                     <div className="flex items-end">
@@ -401,7 +401,6 @@ function Jornadas() {
                             value={formulario.nombre_jornada}
                             onChange={handleChange}
                             className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-500"
-                            placeholder="Ej. Centro Urbano - 2026-06-30"
                         />
                     </div>
 
