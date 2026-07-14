@@ -357,8 +357,7 @@ function Jornadas() {
                             value={nuevoPuesto}
                             onChange={(event) => setNuevoPuesto(event.target.value)}
                             className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-500"
-                            placeholder="Ej. Tianguis de las Antenas"
-                        />
+                        >
                     </div>
 
                     <div className="flex items-end">
