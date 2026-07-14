@@ -4,7 +4,8 @@ import {
     obtenerCatalogosJornadas,
     obtenerJornadas,
     abrirJornada,
-    cerrarJornada
+    cerrarJornada,
+    crearPuesto
 } from '../api/jornadas.api';
 
 function obtenerFechaHoy() {
@@ -33,6 +34,7 @@ function Jornadas() {
     const [jornadas, setJornadas] = useState([]);
 
     const [formulario, setFormulario] = useState(estadoInicialFormulario);
+    const [nuevoPuesto, setNuevoPuesto] = useState('');
 
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
@@ -64,6 +66,16 @@ function Jornadas() {
 
         } finally {
             setCargando(false);
+        }
+    }
+
+    async function cargarCatalogos() {
+        try {
+            const catalogosData = await obtenerCatalogosJornadas();
+            setPuestos(catalogosData.puestos || []);
+        } catch (error) {
+            console.error('Error al cargar catálogos:', error);
+            mostrarMensaje('danger', error.message || 'No se pudieron cargar los puestos.');
         }
     }
 
@@ -138,6 +150,46 @@ function Jornadas() {
         }
 
         return 'border-yellow-500 bg-yellow-500/10 text-yellow-300';
+    }
+
+    async function handleCrearPuesto(event) {
+        event.preventDefault();
+
+        try {
+            setGuardando(true);
+            setMensaje('');
+
+            if (!nuevoPuesto.trim()) {
+                mostrarMensaje('danger', 'Escribe el nombre del puesto.');
+                return;
+            }
+
+            const confirmar = confirm(
+                `¿Confirmas registrar el puesto "${nuevoPuesto.trim()}"?`
+            );
+
+            if (!confirmar) {
+                return;
+            }
+
+            const respuesta = await crearPuesto({
+                nombre: nuevoPuesto.trim()
+            });
+
+            mostrarMensaje('success', respuesta.mensaje || 'Puesto registrado correctamente.');
+
+            setNuevoPuesto('');
+
+            await cargarCatalogos();
+            await cargarJornadas();
+
+        } catch (error) {
+            console.error('Error al crear puesto:', error);
+            mostrarMensaje('danger', error.message || 'No se pudo registrar el puesto.');
+
+        } finally {
+            setGuardando(false);
+        }
     }
 
     async function handleSubmit(event) {
@@ -274,11 +326,10 @@ function Jornadas() {
 
             {mensaje && (
                 <div
-                    className={`mb-6 rounded-2xl border px-5 py-4 text-sm ${
-                        tipoMensaje === 'success'
-                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                            : 'border-red-500 bg-red-500/10 text-red-300'
-                    }`}
+                    className={`mb-6 rounded-2xl border px-5 py-4 text-sm ${tipoMensaje === 'success'
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
+                        : 'border-red-500 bg-red-500/10 text-red-300'
+                        }`}
                 >
                     {mensaje}
                 </div>
@@ -289,6 +340,38 @@ function Jornadas() {
                     Procesando acción...
                 </div>
             )}
+
+            <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+                <h2 className="mb-5 text-xl font-bold text-white">
+                    Agregar nuevo puesto
+                </h2>
+
+                <form onSubmit={handleCrearPuesto} className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
+                    <div>
+                        <label className="mb-2 block text-sm text-slate-300">
+                            Nombre del puesto
+                        </label>
+
+                        <input
+                            type="text"
+                            value={nuevoPuesto}
+                            onChange={(event) => setNuevoPuesto(event.target.value)}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-500"
+                            placeholder="Ej. Tianguis de las Antenas"
+                        />
+                    </div>
+
+                    <div className="flex items-end">
+                        <button
+                            type="submit"
+                            disabled={guardando || accionando}
+                            className="w-full rounded-xl bg-emerald-500 px-6 py-3 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60 md:w-auto"
+                        >
+                            {guardando ? 'Guardando...' : 'Agregar puesto'}
+                        </button>
+                    </div>
+                </form>
+            </div>
 
             <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
                 <h2 className="mb-5 text-xl font-bold text-white">Abrir nueva jornada</h2>

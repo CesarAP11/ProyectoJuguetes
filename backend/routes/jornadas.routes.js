@@ -7,7 +7,8 @@ const {
     obtenerCatalogosJornadas,
     listarJornadas,
     abrirJornada,
-    cerrarJornada
+    cerrarJornada,
+    crearPuesto
 } = require('../controllers/jornadas.controller');
 
 const router = express.Router();
@@ -17,7 +18,10 @@ router.use(verificarEncargadoOAdministrador);
 
 router.get('/catalogos', obtenerCatalogosJornadas);
 router.get('/', listarJornadas);
+
+router.post('/puestos', crearPuesto);
 router.post('/', abrirJornada);
+
 router.patch('/:idJornada/cerrar', cerrarJornada);
 
 module.exports = router;

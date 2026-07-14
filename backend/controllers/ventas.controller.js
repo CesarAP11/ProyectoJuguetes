@@ -181,7 +181,7 @@ async function restaurarInventarioPorError(detallesInsertados, idVenta) {
         for (const detalle of detallesInsertados) {
             const { data: inv } = await supabaseAdmin
                 .from('inventario_puesto')
-                .select('cantidad_disponible')
+                .select('cantidad_disponible, id_lote')
                 .eq('id_inventario_puesto', detalle.id_inventario_puesto)
                 .single();
 
@@ -193,6 +193,24 @@ async function restaurarInventarioPorError(detallesInsertados, idVenta) {
                         ultima_actualizacion: new Date().toISOString()
                     })
                     .eq('id_inventario_puesto', detalle.id_inventario_puesto);
+
+                if (inv.id_lote) {
+                    const { data: lote } = await supabaseAdmin
+                        .from('lotes_inventario')
+                        .select('cantidad_disponible')
+                        .eq('id_lote', inv.id_lote)
+                        .single();
+
+                    if (lote) {
+                        await supabaseAdmin
+                            .from('lotes_inventario')
+                            .update({
+                                cantidad_disponible: Number(lote.cantidad_disponible || 0) + Number(detalle.cantidad || 0),
+                                ultima_actualizacion: new Date().toISOString()
+                            })
+                            .eq('id_lote', inv.id_lote);
+                    }
+                }
             }
         }
 
@@ -327,17 +345,66 @@ async function registrarVenta(req, res) {
                 });
             }
 
+            const { data: inventario, error: inventarioError } = await supabaseAdmin
+                .from('inventario_puesto')
+                .select(`
+                    id_inventario_puesto,
+                    cantidad_disponible,
+                    estado,
+                    id_lote,
+                    id_puesto,
+                    id_producto,
+                    id_propietario,
+                    lotes_inventario (
+                        costo_unitario,
+                        cantidad_disponible
+                    )
+                `)
+                .eq('id_inventario_puesto', producto.id_inventario_puesto)
+                .single();
+
+            if (inventarioError || !inventario) {
+                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+                return res.status(404).json({
+                    ok: false,
+                    mensaje: 'No se encontró el inventario de uno de los productos.'
+                });
+            }
+
+            if (inventario.estado !== 'activo') {
+                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+                return res.status(400).json({
+                    ok: false,
+                    mensaje: 'Uno de los productos ya no está disponible para venta.'
+                });
+            }
+
+            const disponibleActual = Number(inventario.cantidad_disponible || 0);
+
+            if (disponibleActual < cantidad) {
+                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+                return res.status(400).json({
+                    ok: false,
+                    mensaje: `No hay suficiente stock disponible. Quedan ${disponibleActual} pieza(s).`
+                });
+            }
+
+            const costoUnitarioReal = Number(inventario.lotes_inventario?.costo_unitario || 0);
+
             const { data: detalle, error: detalleError } = await supabaseAdmin
                 .from('detalle_ventas')
                 .insert({
                     id_venta: idVentaCreada,
                     id_inventario_puesto: producto.id_inventario_puesto,
-                    id_producto: producto.id_producto || null,
-                    id_lote: producto.id_lote || null,
-                    id_propietario_snapshot: producto.id_propietario_snapshot || null,
+                    id_producto: producto.id_producto || inventario.id_producto || null,
+                    id_lote: producto.id_lote || inventario.id_lote || null,
+                    id_propietario_snapshot: producto.id_propietario_snapshot || inventario.id_propietario || null,
                     cantidad,
                     precio_unitario_venta: precio,
-                    costo_unitario_snapshot: 0
+                    costo_unitario_snapshot: costoUnitarioReal
                 })
                 .select('id_detalle_venta, id_inventario_puesto, cantidad')
                 .single();
@@ -353,6 +420,55 @@ async function registrarVenta(req, res) {
             }
 
             detallesInsertados.push(detalle);
+
+            const nuevoDisponibleInventario = disponibleActual - cantidad;
+
+            const { error: descontarInventarioError } = await supabaseAdmin
+                .from('inventario_puesto')
+                .update({
+                    cantidad_disponible: nuevoDisponibleInventario,
+                    ultima_actualizacion: new Date().toISOString()
+                })
+                .eq('id_inventario_puesto', producto.id_inventario_puesto);
+
+            if (descontarInventarioError) {
+                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+                return res.status(500).json({
+                    ok: false,
+                    mensaje: 'No se pudo descontar el inventario.',
+                    error: descontarInventarioError.message
+                });
+            }
+
+            if (inventario.id_lote) {
+                const disponibleLoteActual = Number(inventario.lotes_inventario?.cantidad_disponible || 0);
+
+                await supabaseAdmin
+                    .from('lotes_inventario')
+                    .update({
+                        cantidad_disponible: Math.max(disponibleLoteActual - cantidad, 0),
+                        ultima_actualizacion: new Date().toISOString()
+                    })
+                    .eq('id_lote', inventario.id_lote);
+            }
+
+            await supabaseAdmin
+                .from('movimientos_inventario')
+                .insert({
+                    id_inventario_puesto: producto.id_inventario_puesto,
+                    id_producto: inventario.id_producto || null,
+                    id_lote: inventario.id_lote || null,
+                    id_propietario: inventario.id_propietario || null,
+                    id_puesto: inventario.id_puesto || null,
+                    id_venta: idVentaCreada,
+                    tipo_movimiento: 'venta',
+                    cantidad,
+                    stock_anterior: disponibleActual,
+                    stock_nuevo: nuevoDisponibleInventario,
+                    descripcion: 'Descuento de stock por venta registrada.',
+                    registrado_por: req.usuario.id
+                });
         }
 
         for (const pago of pagos) {
@@ -388,11 +504,22 @@ async function registrarVenta(req, res) {
             }
         }
 
-        const { data: ventaFinal } = await supabaseAdmin
+        const { data: ventaFinal, error: actualizarTotalError } = await supabaseAdmin
             .from('ventas')
-            .select('id_venta, total_venta')
+            .update({ total_venta: totalProductos })
             .eq('id_venta', idVentaCreada)
+            .select('id_venta, total_venta')
             .single();
+
+        if (actualizarTotalError) {
+            await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'La venta se registró, pero no se pudo guardar el total.',
+                error: actualizarTotalError.message
+            });
+        }
 
         res.status(201).json({
             ok: true,

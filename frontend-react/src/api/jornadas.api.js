@@ -21,3 +21,10 @@ export function cerrarJornada(idJornada, datosCierre = {}) {
         body: JSON.stringify(datosCierre)
     });
 }
+
+export function crearPuesto(datosPuesto) {
+    return apiRequest('/jornadas/puestos', {
+        method: 'POST',
+        body: JSON.stringify(datosPuesto)
+    });
+}

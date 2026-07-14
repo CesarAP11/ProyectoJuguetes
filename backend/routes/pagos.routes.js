@@ -1,26 +1,27 @@
 const express = require('express');
 
 const verificarToken = require('../middleware/verificarToken');
+const verificarAdministrador = require('../middleware/verificarAdministrador');
 
 const {
-    obtenerEmailPorUsername,
-    iniciarSesion,
-    obtenerPerfilActual,
-    verificarSesion,
-    cerrarSesion
-} = require('../controllers/auth.controller');
+    listarMetodosPago,
+    listarMetodosPagoActivos,
+    crearMetodoPago,
+    actualizarMetodoPago,
+    cambiarEstadoMetodoPago
+} = require('../controllers/pagos.controller');
 
 const router = express.Router();
 
-router.post('/login', iniciarSesion);
+router.use(verificarToken);
 
-router.post('/email-por-username', obtenerEmailPorUsername);
-router.post('/buscar-email', obtenerEmailPorUsername);
+// Cualquier usuario autenticado puede ver los métodos activos (los usa la pantalla de Ventas)
+router.get('/activos', listarMetodosPagoActivos);
 
-router.get('/perfil', verificarToken, obtenerPerfilActual);
-router.get('/me', verificarToken, obtenerPerfilActual);
-router.get('/verificar', verificarToken, verificarSesion);
-
-router.post('/logout', verificarToken, cerrarSesion);
+// Gestionar métodos de pago es una acción administrativa
+router.get('/', verificarAdministrador, listarMetodosPago);
+router.post('/', verificarAdministrador, crearMetodoPago);
+router.put('/:idMetodoPago', verificarAdministrador, actualizarMetodoPago);
+router.patch('/:idMetodoPago/estado', verificarAdministrador, cambiarEstadoMetodoPago);
 
 module.exports = router;

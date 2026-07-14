@@ -1,6 +1,6 @@
 const { supabaseAdmin } = require('../services/supabase.service');
 
-async function verificarAdministrador(req, res, next) {
+async function verificarAdminPrincipal(req, res, next) {
     try {
         const idUsuario = req.usuario.id;
 
@@ -24,36 +24,10 @@ async function verificarAdministrador(req, res, next) {
             });
         }
 
-        if (perfil.es_admin_principal) {
-            req.perfil = perfil;
-            return next();
-        }
-
-        const { data: roles, error: rolesError } = await supabaseAdmin
-            .from('perfil_roles')
-            .select(`
-                roles (
-                    nombre
-                )
-            `)
-            .eq('id_perfil', idUsuario);
-
-        if (rolesError) {
-            return res.status(500).json({
-                ok: false,
-                mensaje: 'No se pudieron verificar los roles.',
-                error: rolesError.message
-            });
-        }
-
-        const esAdministrador = roles.some((registro) => {
-            return registro.roles.nombre === 'administrador';
-        });
-
-        if (!esAdministrador) {
+        if (!perfil.es_admin_principal) {
             return res.status(403).json({
                 ok: false,
-                mensaje: 'Solo administradores pueden realizar esta acción.'
+                mensaje: 'Solo el administrador principal puede realizar esta acción.'
             });
         }
 
@@ -63,10 +37,10 @@ async function verificarAdministrador(req, res, next) {
     } catch (error) {
         res.status(500).json({
             ok: false,
-            mensaje: 'Error al verificar administrador.',
+            mensaje: 'Error al verificar administrador principal.',
             error: error.message
         });
     }
 }
 
-module.exports = verificarAdministrador;
+module.exports = verificarAdminPrincipal;
