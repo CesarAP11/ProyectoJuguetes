@@ -1,49 +1,144 @@
 const { supabaseAdmin } = require('../services/supabase.service');
 
+function normalizarRolesSolicitados(roles) {
+    if (!Array.isArray(roles)) {
+        return [];
+    }
+
+    return [
+        ...new Set(
+            roles
+                .map((rol) => String(rol).trim().toLowerCase())
+                .filter(Boolean)
+        )
+    ];
+}
+
+function obtenerRolRelacionado(registro) {
+    if (!registro || !registro.roles) {
+        return null;
+    }
+
+    if (Array.isArray(registro.roles)) {
+        return registro.roles[0] || null;
+    }
+
+    return registro.roles;
+}
+
+async function consultarRolesValidos(nombresRoles) {
+    const { data, error } = await supabaseAdmin
+        .from('roles')
+        .select('id_rol, nombre, descripcion')
+        .in('nombre', nombresRoles);
+
+    if (error) {
+        return {
+            roles: [],
+            error
+        };
+    }
+
+    return {
+        roles: data || [],
+        error: null
+    };
+}
+
 async function listarUsuarios(req, res) {
     try {
-        const { data: perfiles, error: perfilesError } = await supabaseAdmin
-            .from('perfiles')
-            .select(`
-                id_perfil,
-                nombre_completo,
-                username,
-                email,
-                telefono,
-                es_admin_principal,
-                activo
-            `)
-            .order('nombre_completo', { ascending: true });
+        const [
+            perfilesResultado,
+            rolesResultado,
+            perfilRolesResultado
+        ] = await Promise.all([
+            supabaseAdmin
+                .from('perfiles')
+                .select(`
+                    id_perfil,
+                    nombre_completo,
+                    username,
+                    email,
+                    telefono,
+                    es_admin_principal,
+                    activo
+                `)
+                .order('nombre_completo', { ascending: true }),
 
-        if (perfilesError) {
+            supabaseAdmin
+                .from('roles')
+                .select(`
+                    id_rol,
+                    nombre,
+                    descripcion
+                `)
+                .order('nombre', { ascending: true }),
+
+            supabaseAdmin
+                .from('perfil_roles')
+                .select(`
+                    id_perfil,
+                    id_rol,
+                    roles (
+                        id_rol,
+                        nombre,
+                        descripcion
+                    )
+                `)
+        ]);
+
+        if (perfilesResultado.error) {
             return res.status(500).json({
                 ok: false,
                 mensaje: 'Error al listar perfiles.',
-                error: perfilesError.message
+                error: perfilesResultado.error.message
             });
         }
 
-        const { data: perfilRoles, error: rolesError } = await supabaseAdmin
-            .from('perfil_roles')
-            .select(`
-                id_perfil,
-                roles (
-                    nombre
-                )
-            `);
-
-        if (rolesError) {
+        if (rolesResultado.error) {
             return res.status(500).json({
                 ok: false,
-                mensaje: 'Error al listar roles de usuarios.',
-                error: rolesError.message
+                mensaje: 'Error al consultar el catálogo de roles.',
+                error: rolesResultado.error.message
             });
         }
 
+        if (perfilRolesResultado.error) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'Error al listar los roles de los usuarios.',
+                error: perfilRolesResultado.error.message
+            });
+        }
+
+        const perfiles = perfilesResultado.data || [];
+        const catalogoRoles = rolesResultado.data || [];
+        const registrosPerfilRoles = perfilRolesResultado.data || [];
+
+        const mapaRolesPorPerfil = new Map();
+
+        registrosPerfilRoles.forEach((registro) => {
+            const rolRelacionado = obtenerRolRelacionado(registro);
+
+            if (!rolRelacionado?.nombre) {
+                return;
+            }
+
+            const rolesPerfil = mapaRolesPorPerfil.get(registro.id_perfil) || [];
+
+            rolesPerfil.push({
+                id_rol: rolRelacionado.id_rol || registro.id_rol,
+                nombre: rolRelacionado.nombre,
+                descripcion: rolRelacionado.descripcion || ''
+            });
+
+            mapaRolesPorPerfil.set(registro.id_perfil, rolesPerfil);
+        });
+
         const usuarios = perfiles.map((perfil) => {
-            const rolesDelUsuario = perfilRoles
-                .filter((registro) => registro.id_perfil === perfil.id_perfil)
-                .map((registro) => registro.roles.nombre);
+            const rolesDelUsuario = mapaRolesPorPerfil.get(perfil.id_perfil) || [];
+
+            const nombresRoles = rolesDelUsuario.map((rol) => rol.nombre);
 
             return {
                 id_perfil: perfil.id_perfil,
@@ -51,20 +146,26 @@ async function listarUsuarios(req, res) {
                 username: perfil.username,
                 email: perfil.email,
                 telefono: perfil.telefono,
-                es_admin_principal: perfil.es_admin_principal,
-                activo: perfil.activo,
-                vendedor: rolesDelUsuario.includes('vendedor'),
-                encargado: rolesDelUsuario.includes('encargado'),
-                administrador: rolesDelUsuario.includes('administrador')
+                es_admin_principal: Boolean(perfil.es_admin_principal),
+                activo: Boolean(perfil.activo),
+
+                roles: rolesDelUsuario,
+
+                vendedor: nombresRoles.includes('vendedor'),
+                encargado: nombresRoles.includes('encargado'),
+                administrador: nombresRoles.includes('administrador')
             };
         });
 
         res.json({
             ok: true,
-            usuarios
+            usuarios,
+            roles: catalogoRoles
         });
 
     } catch (error) {
+        console.error('Error interno al listar usuarios:', error);
+
         res.status(500).json({
             ok: false,
             mensaje: 'Error interno al listar usuarios.',
@@ -74,6 +175,8 @@ async function listarUsuarios(req, res) {
 }
 
 async function crearUsuario(req, res) {
+    let idUsuarioCreado = null;
+
     try {
         const {
             nombre_completo,
@@ -84,55 +187,92 @@ async function crearUsuario(req, res) {
             roles
         } = req.body;
 
-        if (!nombre_completo || !username || !email || !password) {
+        const nombreLimpio = nombre_completo?.trim();
+        const usernameLimpio = username?.trim();
+        const emailLimpio = email?.trim().toLowerCase();
+        const rolesSolicitados = normalizarRolesSolicitados(roles);
+
+        if (!nombreLimpio || !usernameLimpio || !emailLimpio || !password) {
             return res.status(400).json({
                 ok: false,
-                mensaje: 'Nombre, username, email y contraseña son obligatorios.'
+                mensaje: 'Nombre, usuario, correo y contraseña son obligatorios.'
             });
         }
 
-        if (!Array.isArray(roles) || roles.length === 0) {
+        if (password.length < 6) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'La contraseña debe tener al menos 6 caracteres.'
+            });
+        }
+
+        if (rolesSolicitados.length === 0) {
             return res.status(400).json({
                 ok: false,
                 mensaje: 'Selecciona al menos un rol.'
             });
         }
 
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: {
-                nombre_completo,
-                username
-            }
-        });
+        const consultaRoles = await consultarRolesValidos(rolesSolicitados);
 
-        if (authError) {
-            return res.status(400).json({
+        if (consultaRoles.error) {
+            return res.status(500).json({
                 ok: false,
-                mensaje: 'No se pudo crear el usuario en Authentication.',
-                error: authError.message
+                mensaje: 'No se pudieron consultar los roles.',
+                error: consultaRoles.error.message
             });
         }
 
-        const idPerfil = authData.user.id;
+        const rolesEncontrados = consultaRoles.roles;
+        const nombresEncontrados = rolesEncontrados.map((rol) => rol.nombre);
+
+        const rolesInvalidos = rolesSolicitados.filter(
+            (nombreRol) => !nombresEncontrados.includes(nombreRol)
+        );
+
+        if (rolesInvalidos.length > 0) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: `Los siguientes roles no existen: ${rolesInvalidos.join(', ')}.`
+            });
+        }
+
+        const { data: authData, error: authError } =
+            await supabaseAdmin.auth.admin.createUser({
+                email: emailLimpio,
+                password,
+                email_confirm: true,
+                user_metadata: {
+                    nombre_completo: nombreLimpio,
+                    username: usernameLimpio
+                }
+            });
+
+        if (authError || !authData.user) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'No se pudo crear el usuario en Authentication.',
+                error: authError?.message || 'No se recibió el usuario creado.'
+            });
+        }
+
+        idUsuarioCreado = authData.user.id;
 
         const { error: perfilError } = await supabaseAdmin
             .from('perfiles')
             .insert({
-                id_perfil: idPerfil,
-                nombre_completo,
-                username,
-                email,
-                telefono: telefono || null,
+                id_perfil: idUsuarioCreado,
+                nombre_completo: nombreLimpio,
+                username: usernameLimpio,
+                email: emailLimpio,
+                telefono: telefono?.trim() || null,
                 es_admin_principal: false,
                 debe_cambiar_password: true,
                 activo: true
             });
 
         if (perfilError) {
-            await supabaseAdmin.auth.admin.deleteUser(idPerfil);
+            await supabaseAdmin.auth.admin.deleteUser(idUsuarioCreado);
 
             return res.status(400).json({
                 ok: false,
@@ -141,21 +281,8 @@ async function crearUsuario(req, res) {
             });
         }
 
-        const { data: rolesBD, error: rolesError } = await supabaseAdmin
-            .from('roles')
-            .select('id_rol, nombre')
-            .in('nombre', roles);
-
-        if (rolesError) {
-            return res.status(500).json({
-                ok: false,
-                mensaje: 'No se pudieron consultar los roles.',
-                error: rolesError.message
-            });
-        }
-
-        const registrosRoles = rolesBD.map((rol) => ({
-            id_perfil: idPerfil,
+        const registrosRoles = rolesEncontrados.map((rol) => ({
+            id_perfil: idUsuarioCreado,
             id_rol: rol.id_rol,
             asignado_por: req.usuario.id
         }));
@@ -165,9 +292,16 @@ async function crearUsuario(req, res) {
             .insert(registrosRoles);
 
         if (asignarError) {
+            await supabaseAdmin
+                .from('perfiles')
+                .delete()
+                .eq('id_perfil', idUsuarioCreado);
+
+            await supabaseAdmin.auth.admin.deleteUser(idUsuarioCreado);
+
             return res.status(500).json({
                 ok: false,
-                mensaje: 'Usuario creado, pero no se pudieron asignar roles.',
+                mensaje: 'No se pudieron asignar los roles al usuario.',
                 error: asignarError.message
             });
         }
@@ -178,6 +312,17 @@ async function crearUsuario(req, res) {
         });
 
     } catch (error) {
+        console.error('Error interno al crear usuario:', error);
+
+        if (idUsuarioCreado) {
+            await supabaseAdmin
+                .from('perfiles')
+                .delete()
+                .eq('id_perfil', idUsuarioCreado);
+
+            await supabaseAdmin.auth.admin.deleteUser(idUsuarioCreado);
+        }
+
         res.status(500).json({
             ok: false,
             mensaje: 'Error interno al crear usuario.',
@@ -189,18 +334,18 @@ async function crearUsuario(req, res) {
 async function actualizarRolesUsuario(req, res) {
     try {
         const { idPerfil } = req.params;
-        const { roles } = req.body;
+        const rolesSolicitados = normalizarRolesSolicitados(req.body.roles);
 
-        if (!Array.isArray(roles)) {
+        if (rolesSolicitados.length === 0) {
             return res.status(400).json({
                 ok: false,
-                mensaje: 'Los roles deben enviarse como arreglo.'
+                mensaje: 'El usuario debe tener al menos un rol.'
             });
         }
 
         const { data: perfil, error: perfilError } = await supabaseAdmin
             .from('perfiles')
-            .select('id_perfil, es_admin_principal')
+            .select('id_perfil, username, es_admin_principal')
             .eq('id_perfil', idPerfil)
             .single();
 
@@ -218,6 +363,44 @@ async function actualizarRolesUsuario(req, res) {
             });
         }
 
+        const consultaRoles = await consultarRolesValidos(rolesSolicitados);
+
+        if (consultaRoles.error) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudieron consultar los nuevos roles.',
+                error: consultaRoles.error.message
+            });
+        }
+
+        const rolesEncontrados = consultaRoles.roles;
+        const nombresEncontrados = rolesEncontrados.map((rol) => rol.nombre);
+
+        const rolesInvalidos = rolesSolicitados.filter(
+            (nombreRol) => !nombresEncontrados.includes(nombreRol)
+        );
+
+        if (rolesInvalidos.length > 0) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: `Los siguientes roles no existen: ${rolesInvalidos.join(', ')}.`
+            });
+        }
+
+        const { data: rolesAnteriores, error: rolesAnterioresError } =
+            await supabaseAdmin
+                .from('perfil_roles')
+                .select('id_rol, asignado_por')
+                .eq('id_perfil', idPerfil);
+
+        if (rolesAnterioresError) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudieron consultar los roles anteriores.',
+                error: rolesAnterioresError.message
+            });
+        }
+
         const { error: eliminarError } = await supabaseAdmin
             .from('perfil_roles')
             .delete()
@@ -231,45 +414,45 @@ async function actualizarRolesUsuario(req, res) {
             });
         }
 
-        if (roles.length > 0) {
-            const { data: rolesBD, error: rolesError } = await supabaseAdmin
-                .from('roles')
-                .select('id_rol, nombre')
-                .in('nombre', roles);
+        const registrosNuevos = rolesEncontrados.map((rol) => ({
+            id_perfil: idPerfil,
+            id_rol: rol.id_rol,
+            asignado_por: req.usuario.id
+        }));
 
-            if (rolesError) {
-                return res.status(500).json({
-                    ok: false,
-                    mensaje: 'No se pudieron consultar los nuevos roles.',
-                    error: rolesError.message
-                });
-            }
+        const { error: insertarError } = await supabaseAdmin
+            .from('perfil_roles')
+            .insert(registrosNuevos);
 
-            const registrosRoles = rolesBD.map((rol) => ({
+        if (insertarError) {
+            const registrosRestaurar = (rolesAnteriores || []).map((registro) => ({
                 id_perfil: idPerfil,
-                id_rol: rol.id_rol,
-                asignado_por: req.usuario.id
+                id_rol: registro.id_rol,
+                asignado_por: registro.asignado_por || req.usuario.id
             }));
 
-            const { error: insertarError } = await supabaseAdmin
-                .from('perfil_roles')
-                .insert(registrosRoles);
-
-            if (insertarError) {
-                return res.status(500).json({
-                    ok: false,
-                    mensaje: 'No se pudieron asignar los nuevos roles.',
-                    error: insertarError.message
-                });
+            if (registrosRestaurar.length > 0) {
+                await supabaseAdmin
+                    .from('perfil_roles')
+                    .insert(registrosRestaurar);
             }
+
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudieron asignar los nuevos roles.',
+                error: insertarError.message
+            });
         }
 
         res.json({
             ok: true,
-            mensaje: 'Permisos actualizados correctamente.'
+            mensaje: 'Roles actualizados correctamente.',
+            roles: rolesEncontrados
         });
 
     } catch (error) {
+        console.error('Error interno al actualizar roles:', error);
+
         res.status(500).json({
             ok: false,
             mensaje: 'Error interno al actualizar roles.',
@@ -283,9 +466,16 @@ async function cambiarEstadoUsuario(req, res) {
         const { idPerfil } = req.params;
         const { activo } = req.body;
 
+        if (typeof activo !== 'boolean') {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'El estado del usuario debe ser verdadero o falso.'
+            });
+        }
+
         const { data: perfil, error: perfilError } = await supabaseAdmin
             .from('perfiles')
-            .select('id_perfil, es_admin_principal')
+            .select('id_perfil, username, es_admin_principal')
             .eq('id_perfil', idPerfil)
             .single();
 
@@ -305,7 +495,9 @@ async function cambiarEstadoUsuario(req, res) {
 
         const { error } = await supabaseAdmin
             .from('perfiles')
-            .update({ activo: Boolean(activo) })
+            .update({
+                activo
+            })
             .eq('id_perfil', idPerfil);
 
         if (error) {
@@ -318,10 +510,14 @@ async function cambiarEstadoUsuario(req, res) {
 
         res.json({
             ok: true,
-            mensaje: 'Estado actualizado correctamente.'
+            mensaje: activo
+                ? 'Usuario activado correctamente.'
+                : 'Usuario desactivado correctamente.'
         });
 
     } catch (error) {
+        console.error('Error interno al cambiar estado:', error);
+
         res.status(500).json({
             ok: false,
             mensaje: 'Error interno al cambiar estado.',
