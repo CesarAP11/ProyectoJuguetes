@@ -1,7 +1,7 @@
 const express = require('express');
 
 const verificarToken = require('../middleware/verificarToken');
-const verificarAdminPrincipal = require('../middleware/verificarAdmin');
+const verificarAdministrador = require('../middleware/verificarAdministrador');
 
 const {
     listarUsuarios,
@@ -13,7 +13,7 @@ const {
 const router = express.Router();
 
 router.use(verificarToken);
-router.use(verificarAdminPrincipal);
+router.use(verificarAdministrador);
 
 router.get('/', listarUsuarios);
 router.post('/', crearUsuario);

@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
     obtenerCatalogosInventario,
@@ -14,6 +14,7 @@ import {
 
 import { subirFotoProducto } from '../api/storage.api';
 import { useAuth } from '../context/AuthContext';
+import { puedeGestionarInventario } from '../config/permisos';
 
 const estadoInicialFormulario = {
     id_propietario: '',
@@ -31,6 +32,7 @@ const estadoInicialFormulario = {
 
 function Inventario() {
     const { perfil } = useAuth();
+    const puedeEditarInventario = puedeGestionarInventario(perfil);
 
     const inputFotoActualizarRef = useRef(null);
 
@@ -152,6 +154,14 @@ function Inventario() {
     async function handleSubmit(event) {
         event.preventDefault();
 
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol permite consultar el inventario, pero no modificarlo.'
+            );
+            return;
+        }
+
         try {
             setGuardando(true);
             setMensaje('');
@@ -240,6 +250,14 @@ function Inventario() {
     }
 
     function abrirSelectorFoto(idInventario) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite actualizar fotografías del inventario.'
+            );
+            return;
+        }
+
         setIdInventarioFoto(idInventario);
 
         if (inputFotoActualizarRef.current) {
@@ -249,6 +267,10 @@ function Inventario() {
     }
 
     async function handleActualizarFoto(event) {
+        if (!puedeEditarInventario) {
+            return;
+        }
+
         try {
             const archivo = event.target.files[0];
 
@@ -281,6 +303,14 @@ function Inventario() {
     }
 
     async function handleCambiarPuesto(item) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite cambiar productos de puesto.'
+            );
+            return;
+        }
+
         try {
             const idInventario = item.id_inventario_puesto;
             const idPuestoNuevo = puestosSeleccionados[idInventario];
@@ -327,6 +357,14 @@ function Inventario() {
     }
 
     async function handleResurtir(item) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite resurtir el inventario.'
+            );
+            return;
+        }
+
         try {
             const cantidad = prompt(`¿Cuántas piezas quieres resurtir de "${item.producto}"?`);
 
@@ -386,6 +424,14 @@ function Inventario() {
     }
 
     async function handleCambiarCosto(item) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite cambiar costos.'
+            );
+            return;
+        }
+
         try {
             const costoActual = Number(item.costo_unitario || 0);
 
@@ -432,6 +478,14 @@ function Inventario() {
     }
 
     async function handleCambiarPrecio(item) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite cambiar precios.'
+            );
+            return;
+        }
+
         try {
             const precioActual = Number(item.precio_venta_sugerido || 0);
 
@@ -478,6 +532,14 @@ function Inventario() {
     }
 
     async function handleEliminar(item) {
+        if (!perfil?.es_admin_principal) {
+            mostrarMensaje(
+                'danger',
+                'Solo el administrador principal puede eliminar inventario.'
+            );
+            return;
+        }
+
         try {
             const confirmar = confirm(
                 `¿Seguro que deseas eliminar "${item.producto}" del inventario?\n\nEsta acción quedará registrada.`
@@ -540,6 +602,7 @@ function Inventario() {
                 type="file"
                 accept="image/png, image/jpeg, image/webp"
                 className="hidden"
+                disabled={!puedeEditarInventario}
                 onChange={handleActualizarFoto}
             />
 
@@ -554,7 +617,7 @@ function Inventario() {
                 <button
                     onClick={cargarDatosIniciales}
                     disabled={accionando}
-                    className="rounded-xl border border-emerald-500 px-5 py-3 text-sm font-semibold text-emerald-400 transition hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-60"
+                    className="rounded-xl border border-emerald-500 px-5 py-3 text-sm font-semibold text-emerald-400 transition hover:bg-emerald-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                     Recargar inventario
                 </button>
@@ -571,6 +634,17 @@ function Inventario() {
                 </div>
             )}
 
+            {!puedeEditarInventario && (
+                <div className="mb-6 rounded-2xl border border-yellow-500 bg-yellow-500/10 px-5 py-4 text-sm text-yellow-200">
+                    <p className="font-bold">Inventario en modo consulta</p>
+                    <p className="mt-1 text-yellow-100/80">
+                        Puedes revisar productos y existencias, pero las acciones de registro,
+                        fotografía, cambio de puesto, resurtido, precio y costo están bloqueadas
+                        para tu rol.
+                    </p>
+                </div>
+            )}
+
             {accionando && (
                 <div className="mb-6 rounded-2xl border border-sky-500 bg-sky-500/10 px-5 py-4 text-sm text-sky-300">
                     Procesando acción...
@@ -580,7 +654,15 @@ function Inventario() {
             <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
                 <h2 className="mb-5 text-xl font-bold text-white">Registrar producto</h2>
 
-                <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+                <form onSubmit={handleSubmit}>
+                    <fieldset
+                        disabled={!puedeEditarInventario}
+                        className={`grid grid-cols-1 gap-5 lg:grid-cols-3 ${
+                            !puedeEditarInventario
+                                ? 'cursor-not-allowed opacity-50'
+                                : ''
+                        }`}
+                    >
                     <div>
                         <label className="mb-2 block text-sm text-slate-300">Propietario</label>
                         <select
@@ -747,13 +829,14 @@ function Inventario() {
                     <div className="flex flex-col gap-3 sm:flex-row lg:col-span-3">
                         <button
                             type="submit"
-                            disabled={guardando || accionando}
-                            className="rounded-xl bg-emerald-500 px-6 py-3 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                            disabled={!puedeEditarInventario || guardando || accionando}
+                            className="rounded-xl bg-emerald-500 px-6 py-3 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {guardando ? 'Guardando...' : 'Registrar producto'}
                         </button>
 
                     </div>
+                    </fieldset>
                 </form>
             </div>
 
@@ -839,7 +922,9 @@ function Inventario() {
                                             </td>
 
                                             <td className="px-5 py-4">
-                                                {formatoMoneda(item.costo_unitario)}
+                                                {puedeEditarInventario
+                                                    ? formatoMoneda(item.costo_unitario)
+                                                    : 'Restringido'}
                                             </td>
 
                                             <td className="px-5 py-4">
@@ -847,8 +932,16 @@ function Inventario() {
                                             </td>
 
                                             <td className="px-5 py-4">
-                                                <span className="font-bold text-emerald-400">
-                                                    {formatoMoneda(calcularGanancia(item))}
+                                                <span
+                                                    className={`font-bold ${
+                                                        puedeEditarInventario
+                                                            ? 'text-emerald-400'
+                                                            : 'text-slate-500'
+                                                    }`}
+                                                >
+                                                    {puedeEditarInventario
+                                                        ? formatoMoneda(calcularGanancia(item))
+                                                        : 'Restringido'}
                                                 </span>
                                             </td>
 
@@ -860,16 +953,23 @@ function Inventario() {
 
                                             <td className="px-5 py-4">
                                                 <div className="flex min-w-[360px] flex-wrap gap-2">
+                                                    {!puedeEditarInventario && (
+                                                        <span className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-center text-xs font-semibold text-slate-500">
+                                                            Solo consulta
+                                                        </span>
+                                                    )}
+
                                                     <button
                                                         type="button"
-                                                        disabled={accionando}
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         onClick={() => abrirSelectorFoto(item.id_inventario_puesto)}
-                                                        className="rounded-lg border border-sky-500 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500 hover:text-white disabled:opacity-60"
+                                                        className="rounded-lg border border-sky-500 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         Foto
                                                     </button>
 
                                                     <select
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         value={puestosSeleccionados[item.id_inventario_puesto] || ''}
                                                         onChange={(event) =>
                                                             handlePuestoSeleccionado(
@@ -877,7 +977,7 @@ function Inventario() {
                                                                 event.target.value
                                                             )
                                                         }
-                                                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                                                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         <option value="">Puesto</option>
                                                         {puestos.map((puesto) => (
@@ -889,36 +989,36 @@ function Inventario() {
 
                                                     <button
                                                         type="button"
-                                                        disabled={accionando}
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         onClick={() => handleCambiarPuesto(item)}
-                                                        className="rounded-lg border border-yellow-500 px-3 py-2 text-xs font-semibold text-yellow-300 transition hover:bg-yellow-500 hover:text-slate-950 disabled:opacity-60"
+                                                        className="rounded-lg border border-yellow-500 px-3 py-2 text-xs font-semibold text-yellow-300 transition hover:bg-yellow-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         Cambiar
                                                     </button>
 
                                                     <button
                                                         type="button"
-                                                        disabled={accionando}
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         onClick={() => handleResurtir(item)}
-                                                        className="rounded-lg border border-emerald-500 px-3 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-60"
+                                                        className="rounded-lg border border-emerald-500 px-3 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         Resurtir
                                                     </button>
 
                                                     <button
                                                         type="button"
-                                                        disabled={accionando}
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         onClick={() => handleCambiarPrecio(item)}
-                                                        className="rounded-lg border border-purple-500 px-3 py-2 text-xs font-semibold text-purple-300 transition hover:bg-purple-500 hover:text-white disabled:opacity-60"
+                                                        className="rounded-lg border border-purple-500 px-3 py-2 text-xs font-semibold text-purple-300 transition hover:bg-purple-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         Precio
                                                     </button>
 
                                                     <button
                                                         type="button"
-                                                        disabled={accionando}
+                                                        disabled={!puedeEditarInventario || accionando}
                                                         onClick={() => handleCambiarCosto(item)}
-                                                        className="rounded-lg border border-orange-500 px-3 py-2 text-xs font-semibold text-orange-300 transition hover:bg-orange-500 hover:text-slate-950 disabled:opacity-60"
+                                                        className="rounded-lg border border-orange-500 px-3 py-2 text-xs font-semibold text-orange-300 transition hover:bg-orange-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         Costo
                                                     </button>
@@ -928,7 +1028,7 @@ function Inventario() {
                                                             type="button"
                                                             disabled={accionando}
                                                             onClick={() => handleEliminar(item)}
-                                                            className="rounded-lg border border-red-500 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500 hover:text-white disabled:opacity-60"
+                                                            className="rounded-lg border border-red-500 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                                         >
                                                             Eliminar
                                                         </button>

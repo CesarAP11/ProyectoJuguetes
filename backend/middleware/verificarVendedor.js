@@ -1,5 +1,15 @@
 const { supabaseAdmin } = require('../services/supabase.service');
 
+function obtenerNombreRol(registro) {
+    const relacion = registro?.roles;
+
+    if (Array.isArray(relacion)) {
+        return relacion[0]?.nombre || '';
+    }
+
+    return relacion?.nombre || '';
+}
+
 async function verificarVendedor(req, res, next) {
     try {
         const idUsuario = req.usuario.id;
@@ -25,11 +35,18 @@ async function verificarVendedor(req, res, next) {
         }
 
         if (perfil.es_admin_principal) {
-            req.perfil = perfil;
+            req.perfil = {
+                ...perfil,
+                roles: ['administrador']
+            };
+
+            req.roles = ['administrador'];
+            req.esSoloVendedor = false;
+
             return next();
         }
 
-        const { data: roles, error: rolesError } = await supabaseAdmin
+        const { data: registrosRoles, error: rolesError } = await supabaseAdmin
             .from('perfil_roles')
             .select(`
                 roles (
@@ -46,24 +63,43 @@ async function verificarVendedor(req, res, next) {
             });
         }
 
-        const puedeVender = roles.some((registro) => {
-            return ['vendedor', 'encargado', 'administrador'].includes(registro.roles.nombre);
+        const roles = [
+            ...new Set(
+                (registrosRoles || [])
+                    .map(obtenerNombreRol)
+                    .map((rol) => String(rol).trim().toLowerCase())
+                    .filter(Boolean)
+            )
+        ];
+
+        const puedeVender = roles.some((rol) => {
+            return ['vendedor', 'encargado', 'administrador'].includes(rol);
         });
 
         if (!puedeVender) {
             return res.status(403).json({
                 ok: false,
-                mensaje: 'No tienes permiso para registrar ventas.'
+                mensaje: 'No tienes permiso para acceder a este recurso.'
             });
         }
 
-        req.perfil = perfil;
-        next();
+        req.perfil = {
+            ...perfil,
+            roles
+        };
+
+        req.roles = roles;
+        req.esSoloVendedor =
+            roles.includes('vendedor') &&
+            !roles.includes('encargado') &&
+            !roles.includes('administrador');
+
+        return next();
 
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             ok: false,
-            mensaje: 'Error al verificar permiso de venta.',
+            mensaje: 'Error al verificar permisos.',
             error: error.message
         });
     }

@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '../../context/AuthContext';
+import { obtenerEtiquetaRoles } from '../../config/permisos';
 
 function Topbar({ onAbrirSidebar }) {
     const { perfil, cerrarSesion } = useAuth();
@@ -31,8 +33,9 @@ function Topbar({ onAbrirSidebar }) {
                         <p className="font-semibold text-white">
                             {perfil?.nombre_completo || perfil?.username}
                         </p>
+
                         <p className="text-sm text-slate-400">
-                            {perfil?.es_admin_principal ? 'Administrador principal' : 'Usuario'}
+                            {obtenerEtiquetaRoles(perfil)}
                         </p>
                     </div>
 

@@ -1,7 +1,9 @@
 const express = require('express');
 
 const verificarToken = require('../middleware/verificarToken');
-const verificarAdministrador = require('../middleware/verificarAdministrador');
+const verificarVendedor = require('../middleware/verificarVendedor');
+const filtrarInventarioPorRol = require('../middleware/filtrarInventarioPorRol');
+const verificarEncargadoOAdministrador = require('../middleware/verificarEncargadoOAdministrador');
 const verificarAdminPrincipal = require('../middleware/verificarAdmin');
 
 const {
@@ -20,16 +22,57 @@ const router = express.Router();
 
 router.use(verificarToken);
 
-router.get('/catalogos', verificarAdministrador, obtenerCatalogos);
-router.get('/inventario', verificarAdministrador, listarInventario);
-router.post('/inventario', verificarAdministrador, registrarEntradaInventario);
+// Vendedor, encargado, administrador y admin principal pueden consultar.
+router.get('/catalogos', verificarVendedor, obtenerCatalogos);
+router.get(
+    '/inventario',
+    verificarVendedor,
+    filtrarInventarioPorRol,
+    listarInventario
+);
 
-router.patch('/inventario/:idInventario/foto', verificarAdministrador, actualizarFotoInventario);
-router.patch('/inventario/:idInventario/puesto', verificarAdministrador, cambiarPuestoInventario);
-router.patch('/inventario/:idInventario/resurtir', verificarAdministrador, resurtirInventario);
-router.patch('/inventario/:idInventario/precio', verificarAdministrador, cambiarPrecioVentaInventario);
-router.patch('/inventario/:idInventario/costo', verificarAdministrador, cambiarCostoUnitarioInventario);
+// Solo encargado, administrador y admin principal pueden modificar.
+router.post(
+    '/inventario',
+    verificarEncargadoOAdministrador,
+    registrarEntradaInventario
+);
 
-router.delete('/inventario/:idInventario', verificarAdminPrincipal, eliminarInventario);
+router.patch(
+    '/inventario/:idInventario/foto',
+    verificarEncargadoOAdministrador,
+    actualizarFotoInventario
+);
+
+router.patch(
+    '/inventario/:idInventario/puesto',
+    verificarEncargadoOAdministrador,
+    cambiarPuestoInventario
+);
+
+router.patch(
+    '/inventario/:idInventario/resurtir',
+    verificarEncargadoOAdministrador,
+    resurtirInventario
+);
+
+router.patch(
+    '/inventario/:idInventario/precio',
+    verificarEncargadoOAdministrador,
+    cambiarPrecioVentaInventario
+);
+
+router.patch(
+    '/inventario/:idInventario/costo',
+    verificarEncargadoOAdministrador,
+    cambiarCostoUnitarioInventario
+);
+
+// Eliminar inventario continúa reservado al administrador principal.
+router.delete(
+    '/inventario/:idInventario',
+    verificarAdminPrincipal,
+    eliminarInventario
+);
 
 module.exports = router;

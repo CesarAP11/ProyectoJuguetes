@@ -1,16 +1,14 @@
 import { NavLink } from 'react-router-dom';
 
-const enlaces = [
-    { texto: 'Dashboard', ruta: '/dashboard' },
-    { texto: 'Ventas', ruta: '/ventas' },
-    { texto: 'Inventario', ruta: '/inventario' },
-    { texto: 'Jornadas', ruta: '/jornadas' },
-    { texto: 'Reportes', ruta: '/reportes' },
-    { texto: 'Usuarios', ruta: '/usuarios' },
-    { texto: 'Cortes', ruta: '/cortes' }
-];
+import { useAuth } from '../../context/AuthContext';
+import {
+    MODULOS_MENU,
+    tienePermisoModulo
+} from '../../config/permisos';
 
 function ContenidoSidebar({ onCerrar }) {
+    const { perfil } = useAuth();
+
     return (
         <>
             <div className="mb-8 flex items-center gap-3">
@@ -25,23 +23,49 @@ function ContenidoSidebar({ onCerrar }) {
             </div>
 
             <nav className="space-y-2">
-                {enlaces.map((enlace) => (
-                    <NavLink
-                        key={enlace.ruta}
-                        to={enlace.ruta}
-                        onClick={onCerrar}
-                        className={({ isActive }) =>
-                            `block rounded-xl px-4 py-3 text-sm font-medium transition ${
-                                isActive
-                                    ? 'bg-emerald-500 text-slate-950'
-                                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`
-                        }
-                    >
-                        {enlace.texto}
-                    </NavLink>
-                ))}
+                {MODULOS_MENU.map((enlace) => {
+                    const habilitado = tienePermisoModulo(perfil, enlace.id);
+
+                    if (!habilitado) {
+                        return (
+                            <button
+                                key={enlace.ruta}
+                                type="button"
+                                disabled
+                                aria-disabled="true"
+                                title="Módulo no disponible para tus roles"
+                                className="flex w-full cursor-not-allowed items-center justify-between rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-left text-sm font-medium text-slate-600 opacity-70"
+                            >
+                                <span>{enlace.texto}</span>
+                                <span aria-hidden="true" className="text-xs">
+                                    🔒
+                                </span>
+                            </button>
+                        );
+                    }
+
+                    return (
+                        <NavLink
+                            key={enlace.ruta}
+                            to={enlace.ruta}
+                            onClick={onCerrar}
+                            className={({ isActive }) =>
+                                `flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition ${
+                                    isActive
+                                        ? 'bg-emerald-500 text-slate-950'
+                                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                                }`
+                            }
+                        >
+                            <span>{enlace.texto}</span>
+                        </NavLink>
+                    );
+                })}
             </nav>
+
+            <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-xs text-slate-500">
+                Los módulos con candado requieren otro rol.
+            </div>
         </>
     );
 }
@@ -49,7 +73,7 @@ function ContenidoSidebar({ onCerrar }) {
 function Sidebar({ abierto, onCerrar }) {
     return (
         <>
-            <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 border-r border-slate-800 bg-slate-950 p-5 lg:block">
+            <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 overflow-y-auto border-r border-slate-800 bg-slate-950 p-5 lg:block">
                 <ContenidoSidebar />
             </aside>
 
@@ -62,7 +86,7 @@ function Sidebar({ abierto, onCerrar }) {
                         className="absolute inset-0 bg-black/60"
                     />
 
-                    <aside className="relative h-full w-72 max-w-[85vw] border-r border-slate-800 bg-slate-950 p-5 shadow-2xl">
+                    <aside className="relative h-full w-72 max-w-[85vw] overflow-y-auto border-r border-slate-800 bg-slate-950 p-5 shadow-2xl">
                         <div className="mb-5 flex justify-end">
                             <button
                                 type="button"

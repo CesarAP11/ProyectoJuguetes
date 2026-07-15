@@ -1,8 +1,11 @@
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 
-function ProtectedRoute({ children }) {
-    const { autenticado, cargando } = useAuth();
+import { useAuth } from '../../context/AuthContext';
+import { tienePermisoModulo } from '../../config/permisos';
+import AccesoRestringido from '../../pages/AccesoRestringido';
+
+function ProtectedRoute({ children, modulo = null }) {
+    const { autenticado, cargando, perfil } = useAuth();
 
     if (cargando) {
         return (
@@ -14,6 +17,10 @@ function ProtectedRoute({ children }) {
 
     if (!autenticado) {
         return <Navigate to="/login" replace />;
+    }
+
+    if (modulo && !tienePermisoModulo(perfil, modulo)) {
+        return <AccesoRestringido modulo={modulo} />;
     }
 
     return children;
