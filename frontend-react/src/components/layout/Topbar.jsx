@@ -18,20 +18,27 @@ function Topbar({ onAbrirSidebar }) {
                 <button
                     type="button"
                     onClick={onAbrirSidebar}
-                    className="rounded-xl border border-slate-700 px-3 py-2 text-white lg:hidden"
+                    aria-label="Abrir menú"
+                    className="rounded-xl border border-slate-700 px-3 py-2 text-white transition hover:bg-slate-800 lg:hidden"
                 >
                     ☰
                 </button>
 
                 <div>
-                    <h2 className="text-lg font-bold text-white">Panel de control</h2>
-                    <p className="text-sm text-slate-400">Administración de JuguetesFun</p>
+                    <h2 className="text-lg font-bold text-white">
+                        Panel de control
+                    </h2>
+
+                    <p className="text-sm text-slate-400">
+                        Administración de JuguetesFun
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-4">
                     <div className="hidden text-right sm:block">
                         <p className="font-semibold text-white">
-                            {perfil?.nombre_completo || perfil?.username}
+                            {perfil?.nombre_completo ||
+                                perfil?.username}
                         </p>
 
                         <p className="text-sm text-slate-400">

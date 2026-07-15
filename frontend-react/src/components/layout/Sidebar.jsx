@@ -12,19 +12,32 @@ function ContenidoSidebar({ onCerrar }) {
     return (
         <>
             <div className="mb-8 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 font-bold text-slate-950">
-                    JF
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+                    <img
+                        src="/images/logo-juguetesfun.png"
+                        alt="Logo de JuguetesFun"
+                        className="h-full w-full scale-125 object-contain"
+                        draggable="false"
+                    />
                 </div>
 
-                <div>
-                    <h1 className="text-xl font-bold text-white">JuguetesFun</h1>
-                    <p className="text-sm text-slate-500">Sistema de ventas</p>
+                <div className="min-w-0">
+                    <h1 className="truncate text-xl font-bold text-white">
+                        JuguetesFun
+                    </h1>
+
+                    <p className="text-sm text-slate-500">
+                        Sistema de ventas
+                    </p>
                 </div>
             </div>
 
             <nav className="space-y-2">
                 {MODULOS_MENU.map((enlace) => {
-                    const habilitado = tienePermisoModulo(perfil, enlace.id);
+                    const habilitado = tienePermisoModulo(
+                        perfil,
+                        enlace.id
+                    );
 
                     if (!habilitado) {
                         return (
@@ -37,7 +50,11 @@ function ContenidoSidebar({ onCerrar }) {
                                 className="flex w-full cursor-not-allowed items-center justify-between rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-left text-sm font-medium text-slate-600 opacity-70"
                             >
                                 <span>{enlace.texto}</span>
-                                <span aria-hidden="true" className="text-xs">
+
+                                <span
+                                    aria-hidden="true"
+                                    className="text-xs"
+                                >
                                     🔒
                                 </span>
                             </button>
@@ -73,7 +90,7 @@ function ContenidoSidebar({ onCerrar }) {
 function Sidebar({ abierto, onCerrar }) {
     return (
         <>
-            <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 overflow-y-auto border-r border-slate-800 bg-slate-950 p-5 lg:block">
+            <aside className="fixed left-0 top-0 z-40 hidden h-screen w-72 overflow-y-auto border-r border-slate-800 bg-slate-950 p-5 lg:block">
                 <ContenidoSidebar />
             </aside>
 
@@ -91,7 +108,7 @@ function Sidebar({ abierto, onCerrar }) {
                             <button
                                 type="button"
                                 onClick={onCerrar}
-                                className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+                                className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-white"
                             >
                                 Cerrar
                             </button>
