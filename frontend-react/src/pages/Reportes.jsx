@@ -97,6 +97,79 @@ async function convertirImagenADataUrl(url) {
     }
 }
 
+async function convertirLogoADataUrl(url) {
+    if (!url) {
+        return '';
+    }
+
+    try {
+        const respuesta = await fetch(url, {
+            cache: 'force-cache'
+        });
+
+        if (!respuesta.ok) {
+            throw new Error(
+                `No se pudo descargar el logo: ${respuesta.status}`
+            );
+        }
+
+        const blob = await respuesta.blob();
+        const urlTemporal = URL.createObjectURL(blob);
+
+        try {
+            const imagen = await new Promise((resolve, reject) => {
+                const elemento = new Image();
+
+                elemento.onload = () => resolve(elemento);
+                elemento.onerror = () => reject(
+                    new Error('No se pudo procesar el logo.')
+                );
+                elemento.src = urlTemporal;
+            });
+
+            const anchoMaximo = 900;
+            const escala = Math.min(
+                1,
+                anchoMaximo / Math.max(1, imagen.naturalWidth)
+            );
+
+            const ancho = Math.max(
+                1,
+                Math.round(imagen.naturalWidth * escala)
+            );
+            const alto = Math.max(
+                1,
+                Math.round(imagen.naturalHeight * escala)
+            );
+
+            const canvas = document.createElement('canvas');
+            canvas.width = ancho;
+            canvas.height = alto;
+
+            const contexto = canvas.getContext('2d');
+
+            if (!contexto) {
+                throw new Error(
+                    'No se pudo preparar el logo para el PDF.'
+                );
+            }
+
+            contexto.clearRect(0, 0, ancho, alto);
+            contexto.drawImage(imagen, 0, 0, ancho, alto);
+
+            return canvas.toDataURL('image/png');
+        } finally {
+            URL.revokeObjectURL(urlTemporal);
+        }
+    } catch (error) {
+        console.warn(
+            'No se pudo incluir el logo en el PDF:',
+            error
+        );
+        return '';
+    }
+}
+
 function Reportes() {
     const [fechaInicio, setFechaInicio] = useState(fechaHaceDias(7));
     const [fechaFin, setFechaFin] = useState(fechaHoy());
@@ -218,6 +291,10 @@ function Reportes() {
             setGenerandoPdf(true);
             setMensaje('');
 
+            const logoPdf = await convertirLogoADataUrl(
+                '/images/logo-juguetesfun.png'
+            );
+
             const documento = new jsPDF({
                 orientation: 'landscape',
                 unit: 'mm',
@@ -248,12 +325,25 @@ function Reportes() {
 
             function dibujarCabecera(tituloSeccion = '') {
                 documento.setFillColor(15, 23, 42);
-                documento.rect(0, 0, anchoPagina, 18, 'F');
+                documento.rect(0, 0, anchoPagina, 22, 'F');
 
-                documento.setTextColor(16, 185, 129);
-                documento.setFont('helvetica', 'bold');
-                documento.setFontSize(15);
-                documento.text('JuguetesFun', margen, 11.5);
+                if (logoPdf) {
+                    documento.addImage(
+                        logoPdf,
+                        'PNG',
+                        margen,
+                        2,
+                        46,
+                        17,
+                        undefined,
+                        'FAST'
+                    );
+                } else {
+                    documento.setTextColor(16, 185, 129);
+                    documento.setFont('helvetica', 'bold');
+                    documento.setFontSize(15);
+                    documento.text('JuguetesFun', margen, 13.5);
+                }
 
                 documento.setTextColor(255, 255, 255);
                 documento.setFont('helvetica', 'normal');
@@ -261,30 +351,27 @@ function Reportes() {
                 documento.text(
                     `Reporte de ventas | ${periodo}`,
                     anchoPagina - margen,
-                    8,
+                    8.5,
                     { align: 'right' }
                 );
 
                 if (tituloSeccion) {
                     documento.setFont('helvetica', 'bold');
-                    documento.setFontSize(11);
+                    documento.setFontSize(10.5);
                     documento.text(
                         textoPdf(tituloSeccion),
                         anchoPagina - margen,
-                        13.5,
+                        15.5,
                         { align: 'right' }
                     );
                 }
             }
 
-            function agregarPaginaSeccion(titulo) {
-                documento.addPage('a4', 'landscape');
-                dibujarCabecera(titulo);
-
+            function dibujarTituloSeccion(titulo) {
                 documento.setTextColor(15, 23, 42);
                 documento.setFont('helvetica', 'bold');
                 documento.setFontSize(16);
-                documento.text(textoPdf(titulo), margen, 29);
+                documento.text(textoPdf(titulo), margen, 32);
             }
 
             function tablaSeccion({
@@ -295,17 +382,17 @@ function Reportes() {
                 styles = {},
                 didDrawCell
             }) {
-                agregarPaginaSeccion(titulo);
+                documento.addPage('a4', 'landscape');
 
                 autoTable(documento, {
-                    startY: 34,
+                    startY: 38,
                     head: [columnas.map((columna) => textoPdf(columna))],
                     body: filas,
                     theme: 'grid',
                     margin: {
                         left: margen,
                         right: margen,
-                        top: 24,
+                        top: 38,
                         bottom: 16
                     },
                     headStyles: {
@@ -332,6 +419,10 @@ function Reportes() {
                         ...styles
                     },
                     columnStyles,
+                    didDrawPage: () => {
+                        dibujarCabecera(titulo);
+                        dibujarTituloSeccion(titulo);
+                    },
                     didDrawCell
                 });
             }
@@ -342,7 +433,7 @@ function Reportes() {
             documento.setTextColor(15, 23, 42);
             documento.setFont('helvetica', 'bold');
             documento.setFontSize(24);
-            documento.text('Reporte general de ventas', margen, 35);
+            documento.text('Reporte general de ventas', margen, 39);
 
             documento.setFont('helvetica', 'normal');
             documento.setFontSize(10);
@@ -350,12 +441,12 @@ function Reportes() {
             documento.text(
                 `Periodo consultado: ${periodo}`,
                 margen,
-                43
+                47
             );
             documento.text(
                 `Generado: ${fechaGeneracion}`,
                 margen,
-                49
+                53
             );
 
             const tarjetas = [
@@ -394,7 +485,7 @@ function Reportes() {
             const separacionTarjeta = 6;
             const anchoTarjeta =
                 (anchoPagina - margen * 2 - separacionTarjeta * 3) / 4;
-            const yTarjeta = 62;
+            const yTarjeta = 66;
 
             tarjetas.forEach((tarjeta, index) => {
                 const x =
@@ -445,7 +536,7 @@ function Reportes() {
             documento.setTextColor(15, 23, 42);
             documento.setFont('helvetica', 'bold');
             documento.setFontSize(13);
-            documento.text('Contenido del reporte', margen, 119);
+            documento.text('Contenido del reporte', margen, 123);
 
             documento.setFont('helvetica', 'normal');
             documento.setFontSize(9);
@@ -464,7 +555,7 @@ function Reportes() {
                 documento.text(
                     `• ${textoPdf(apartado)}`,
                     margen + 4,
-                    130 + index * 8
+                    134 + index * 8
                 );
             });
 
@@ -919,8 +1010,8 @@ function Reportes() {
             {mensaje && (
                 <div
                     className={`mb-6 rounded-2xl border px-5 py-4 text-sm ${tipoMensaje === 'success'
-                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                        : 'border-red-500 bg-red-500/10 text-red-300'
+                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
+                            : 'border-red-500 bg-red-500/10 text-red-300'
                         }`}
                 >
                     {mensaje}

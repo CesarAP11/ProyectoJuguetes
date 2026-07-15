@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 const { supabaseAdmin } = require('../services/supabase.service');
 
@@ -808,6 +810,76 @@ function agregarFilaPdf(doc, etiqueta, valor, opciones = {}) {
     doc.moveDown(0.7);
 }
 
+function dibujarEncabezadoPdfCorte(doc, {
+    idCorte,
+    fechaGeneracion,
+    titulo = 'Reporte de corte de caja'
+}) {
+    const rutaLogo = path.join(
+        __dirname,
+        '..',
+        'assets',
+        'logo-juguetesfun.png'
+    );
+
+    doc.save();
+
+    doc.rect(0, 0, doc.page.width, 105).fill('#020617');
+
+    if (fs.existsSync(rutaLogo)) {
+        try {
+            doc.image(rutaLogo, 50, 16, {
+                fit: [205, 62],
+                align: 'left',
+                valign: 'center'
+            });
+        } catch (errorLogo) {
+            console.warn(
+                'No se pudo insertar el logo en el PDF del corte:',
+                errorLogo.message
+            );
+
+            doc.font('Helvetica-Bold')
+                .fontSize(24)
+                .fillColor('#10b981')
+                .text('JuguetesFun', 50, 38);
+        }
+    } else {
+        console.warn(
+            `No se encontró el logo para el PDF del corte: ${rutaLogo}`
+        );
+
+        doc.font('Helvetica-Bold')
+            .fontSize(24)
+            .fillColor('#10b981')
+            .text('JuguetesFun', 50, 38);
+    }
+
+    doc.font('Helvetica')
+        .fontSize(10)
+        .fillColor('#cbd5e1')
+        .text(titulo, 50, 82);
+
+    doc.font('Helvetica-Bold')
+        .fontSize(10)
+        .fillColor('#ffffff')
+        .text(`Folio: ${idCorte}`, 330, 42, {
+            width: 215,
+            align: 'right'
+        });
+
+    doc.font('Helvetica')
+        .fontSize(9)
+        .fillColor('#cbd5e1')
+        .text(`Generado: ${fechaGeneracion}`, 330, 62, {
+            width: 215,
+            align: 'right'
+        });
+
+    doc.restore();
+    doc.y = 130;
+}
+
 async function descargarPdfCorte(req, res) {
     try {
         const { idCorte } = req.params;
@@ -878,35 +950,21 @@ async function descargarPdfCorte(req, res) {
             doc.on('error', reject);
         });
 
-        doc.rect(0, 0, doc.page.width, 105).fill('#020617');
+        const fechaGeneracion = formatoFecha(
+            new Date().toISOString()
+        );
 
-        doc.font('Helvetica-Bold')
-            .fontSize(24)
-            .fillColor('#10b981')
-            .text('JuguetesFun', 50, 38);
+        const datosEncabezado = {
+            idCorte,
+            fechaGeneracion,
+            titulo: 'Reporte de corte de caja'
+        };
 
-        doc.font('Helvetica')
-            .fontSize(11)
-            .fillColor('#cbd5e1')
-            .text('Reporte de corte de caja', 50, 70);
+        doc.on('pageAdded', () => {
+            dibujarEncabezadoPdfCorte(doc, datosEncabezado);
+        });
 
-        doc.font('Helvetica-Bold')
-            .fontSize(10)
-            .fillColor('#ffffff')
-            .text(`Folio: ${idCorte}`, 330, 42, {
-                width: 215,
-                align: 'right'
-            });
-
-        doc.font('Helvetica')
-            .fontSize(9)
-            .fillColor('#cbd5e1')
-            .text(`Generado: ${formatoFecha(new Date().toISOString())}`, 330, 62, {
-                width: 215,
-                align: 'right'
-            });
-
-        doc.y = 130;
+        dibujarEncabezadoPdfCorte(doc, datosEncabezado);
 
         doc.font('Helvetica-Bold')
             .fontSize(15)
