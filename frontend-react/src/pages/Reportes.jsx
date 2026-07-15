@@ -292,7 +292,7 @@ function Reportes() {
             setMensaje('');
 
             const logoPdf = await convertirLogoADataUrl(
-                '/images/logo-juguetesfun.png'
+                '/images/logo-juguetesfun-pdf.png'
             );
 
             const documento = new jsPDF({
@@ -324,54 +324,222 @@ function Reportes() {
             }
 
             function dibujarCabecera(tituloSeccion = '') {
-                documento.setFillColor(15, 23, 42);
-                documento.rect(0, 0, anchoPagina, 22, 'F');
+                documento.setFillColor(255, 255, 255);
+                documento.rect(0, 0, anchoPagina, 29, 'F');
 
                 if (logoPdf) {
                     documento.addImage(
                         logoPdf,
                         'PNG',
                         margen,
-                        2,
-                        46,
-                        17,
+                        3,
+                        35,
+                        21,
                         undefined,
                         'FAST'
                     );
                 } else {
-                    documento.setTextColor(16, 185, 129);
+                    documento.setTextColor(15, 23, 42);
                     documento.setFont('helvetica', 'bold');
-                    documento.setFontSize(15);
-                    documento.text('JuguetesFun', margen, 13.5);
+                    documento.setFontSize(14);
+                    documento.text('JuguetesFun', margen, 14);
                 }
 
-                documento.setTextColor(255, 255, 255);
-                documento.setFont('helvetica', 'normal');
-                documento.setFontSize(9);
+                documento.setTextColor(15, 23, 42);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(10);
                 documento.text(
-                    `Reporte de ventas | ${periodo}`,
+                    'REPORTE DE VENTAS · JUGUETESFUN',
                     anchoPagina - margen,
-                    8.5,
+                    8,
                     { align: 'right' }
                 );
 
-                if (tituloSeccion) {
-                    documento.setFont('helvetica', 'bold');
-                    documento.setFontSize(10.5);
-                    documento.text(
-                        textoPdf(tituloSeccion),
-                        anchoPagina - margen,
-                        15.5,
-                        { align: 'right' }
-                    );
-                }
+                documento.setTextColor(71, 85, 105);
+                documento.setFont('helvetica', 'normal');
+                documento.setFontSize(7.5);
+                documento.text(
+                    'Sistema de ventas, inventario y control operativo',
+                    anchoPagina - margen,
+                    14,
+                    { align: 'right' }
+                );
+
+                documento.setTextColor(5, 150, 105);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(7.5);
+                documento.text(
+                    tituloSeccion
+                        ? `${textoPdf(tituloSeccion)} · Periodo ${periodo}`
+                        : `Periodo ${periodo}`,
+                    anchoPagina - margen,
+                    20,
+                    { align: 'right' }
+                );
+
+                documento.setDrawColor(203, 213, 225);
+                documento.setLineWidth(0.25);
+                documento.line(
+                    margen,
+                    27,
+                    anchoPagina - margen,
+                    27
+                );
             }
 
             function dibujarTituloSeccion(titulo) {
                 documento.setTextColor(15, 23, 42);
                 documento.setFont('helvetica', 'bold');
                 documento.setFontSize(16);
-                documento.text(textoPdf(titulo), margen, 32);
+                documento.text(textoPdf(titulo), margen, 38);
+            }
+
+            function dibujarPortadaReporte() {
+                documento.setFillColor(2, 6, 23);
+                documento.rect(0, 0, anchoPagina, altoPagina, 'F');
+
+                documento.setFillColor(3, 25, 38);
+                documento.circle(48, 173, 48, 'F');
+                documento.setFillColor(28, 16, 36);
+                documento.circle(248, 55, 49, 'F');
+
+                documento.setDrawColor(30, 64, 84);
+                documento.setLineWidth(0.45);
+                documento.roundedRect(
+                    18,
+                    12,
+                    anchoPagina - 36,
+                    20,
+                    3,
+                    3,
+                    'S'
+                );
+
+                documento.setTextColor(191, 219, 254);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(10);
+                documento.text(
+                    'DOCUMENTACIÓN OFICIAL DEL SISTEMA',
+                    25,
+                    21
+                );
+
+                documento.setTextColor(148, 163, 184);
+                documento.setFont('helvetica', 'normal');
+                documento.setFontSize(6.8);
+                documento.text(
+                    'JuguetesFun · Documento operativo',
+                    25,
+                    27
+                );
+
+                if (logoPdf) {
+                    documento.addImage(
+                        logoPdf,
+                        'PNG',
+                        90,
+                        38,
+                        117,
+                        78,
+                        undefined,
+                        'FAST'
+                    );
+                } else {
+                    documento.setTextColor(16, 185, 129);
+                    documento.setFont('helvetica', 'bold');
+                    documento.setFontSize(29);
+                    documento.text(
+                        'JuguetesFun',
+                        anchoPagina / 2,
+                        80,
+                        { align: 'center' }
+                    );
+                }
+
+                documento.setTextColor(255, 255, 255);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(25);
+                documento.text(
+                    'REPORTE DE VENTAS',
+                    anchoPagina / 2,
+                    128,
+                    { align: 'center' }
+                );
+
+                documento.setTextColor(186, 230, 253);
+                documento.setFont('helvetica', 'normal');
+                documento.setFontSize(9.5);
+                documento.text(
+                    'Ventas, costos, ganancias y desempeño operativo',
+                    anchoPagina / 2,
+                    139,
+                    { align: 'center' }
+                );
+
+                documento.setDrawColor(16, 185, 129);
+                documento.setLineWidth(2.2);
+                documento.line(72, 149, anchoPagina - 72, 149);
+
+                documento.setFillColor(3, 20, 36);
+                documento.setDrawColor(30, 64, 84);
+                documento.setLineWidth(0.45);
+                documento.roundedRect(
+                    53,
+                    159,
+                    anchoPagina - 106,
+                    31,
+                    4,
+                    4,
+                    'FD'
+                );
+
+                documento.setTextColor(16, 185, 129);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(8);
+                documento.text(
+                    'PERIODO DEL REPORTE',
+                    anchoPagina / 2,
+                    168,
+                    { align: 'center' }
+                );
+
+                documento.setTextColor(255, 255, 255);
+                documento.setFont('helvetica', 'bold');
+                documento.setFontSize(12);
+                documento.text(
+                    textoPdf(periodo),
+                    anchoPagina / 2,
+                    177,
+                    { align: 'center' }
+                );
+
+                documento.setTextColor(148, 163, 184);
+                documento.setFont('helvetica', 'normal');
+                documento.setFontSize(7);
+                documento.text(
+                    `Generado: ${textoPdf(fechaGeneracion)}`,
+                    anchoPagina / 2,
+                    185,
+                    { align: 'center' }
+                );
+
+                documento.setTextColor(148, 163, 184);
+                documento.setFont('helvetica', 'normal');
+                documento.setFontSize(6.5);
+                documento.text(
+                    'JuguetesFun · Uso interno y operativo',
+                    18,
+                    altoPagina - 9
+                );
+
+                documento.setTextColor(249, 115, 22);
+                documento.setFont('helvetica', 'bold');
+                documento.text(
+                    'Sistema de ventas e inventario',
+                    anchoPagina - 18,
+                    altoPagina - 9,
+                    { align: 'right' }
+                );
             }
 
             function tablaSeccion({
@@ -385,14 +553,14 @@ function Reportes() {
                 documento.addPage('a4', 'landscape');
 
                 autoTable(documento, {
-                    startY: 38,
+                    startY: 44,
                     head: [columnas.map((columna) => textoPdf(columna))],
                     body: filas,
                     theme: 'grid',
                     margin: {
                         left: margen,
                         right: margen,
-                        top: 38,
+                        top: 44,
                         bottom: 16
                     },
                     headStyles: {
@@ -427,26 +595,30 @@ function Reportes() {
                 });
             }
 
-            // Página 1: portada y resumen general
+            // Página 1: portada institucional.
+            dibujarPortadaReporte();
+
+            // Página 2: resumen general.
+            documento.addPage('a4', 'landscape');
             dibujarCabecera('Resumen general');
 
             documento.setTextColor(15, 23, 42);
             documento.setFont('helvetica', 'bold');
-            documento.setFontSize(24);
-            documento.text('Reporte general de ventas', margen, 39);
+            documento.setFontSize(22);
+            documento.text('Resumen general', margen, 40);
 
             documento.setFont('helvetica', 'normal');
-            documento.setFontSize(10);
+            documento.setFontSize(9);
             documento.setTextColor(71, 85, 105);
             documento.text(
                 `Periodo consultado: ${periodo}`,
                 margen,
-                47
+                48
             );
             documento.text(
-                `Generado: ${fechaGeneracion}`,
+                `Fecha de generación: ${fechaGeneracion}`,
                 margen,
-                53
+                54
             );
 
             const tarjetas = [
@@ -469,7 +641,7 @@ function Reportes() {
                 {
                     titulo: 'Costo total',
                     valor: formatoMoneda(resumen?.costo_total || 0),
-                    subtitulo: 'Costo de mercancia'
+                    subtitulo: 'Costo de mercancía'
                 },
                 {
                     titulo: 'Ganancia estimada',
@@ -485,7 +657,7 @@ function Reportes() {
             const separacionTarjeta = 6;
             const anchoTarjeta =
                 (anchoPagina - margen * 2 - separacionTarjeta * 3) / 4;
-            const yTarjeta = 66;
+            const yTarjeta = 64;
 
             tarjetas.forEach((tarjeta, index) => {
                 const x =
@@ -536,7 +708,7 @@ function Reportes() {
             documento.setTextColor(15, 23, 42);
             documento.setFont('helvetica', 'bold');
             documento.setFontSize(13);
-            documento.text('Contenido del reporte', margen, 123);
+            documento.text('Contenido del documento', margen, 119);
 
             documento.setFont('helvetica', 'normal');
             documento.setFontSize(9);
@@ -546,16 +718,24 @@ function Reportes() {
                 'Ventas por puesto',
                 'Ganancia por propietario',
                 'Ventas por vendedor',
-                'Metodos de pago',
-                'Productos mas vendidos con fotografias',
-                'Detalle de juguetes vendidos con fotografias'
+                'Métodos de pago',
+                'Productos más vendidos con fotografías',
+                'Detalle de juguetes vendidos con fotografías'
             ];
 
             apartados.forEach((apartado, index) => {
+                const columna = index >= 3 ? 1 : 0;
+                const fila = index % 3;
+                const x = margen + columna * 135;
+                const y = 132 + fila * 12;
+
+                documento.setFillColor(236, 253, 245);
+                documento.circle(x + 2.2, y - 2.2, 1.6, 'F');
+
                 documento.text(
-                    `• ${textoPdf(apartado)}`,
-                    margen + 4,
-                    134 + index * 8
+                    textoPdf(apartado),
+                    x + 7,
+                    y
                 );
             });
 
@@ -924,10 +1104,11 @@ function Reportes() {
                 }
             });
 
-            // Pie de página en todas las páginas.
+            // Pie de página en las páginas de contenido.
             const totalPaginas = documento.getNumberOfPages();
+            const paginasContenido = Math.max(1, totalPaginas - 1);
 
-            for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+            for (let pagina = 2; pagina <= totalPaginas; pagina += 1) {
                 documento.setPage(pagina);
 
                 documento.setDrawColor(203, 213, 225);
@@ -941,14 +1122,14 @@ function Reportes() {
 
                 documento.setTextColor(100, 116, 139);
                 documento.setFont('helvetica', 'normal');
-                documento.setFontSize(7.5);
+                documento.setFontSize(7);
                 documento.text(
-                    `JuguetesFun | Periodo ${periodo}`,
+                    'JuguetesFun · Sistema de ventas, inventario y control operativo',
                     margen,
                     altoPagina - 6
                 );
                 documento.text(
-                    `Pagina ${pagina} de ${totalPaginas}`,
+                    `Página ${pagina - 1} de ${paginasContenido}`,
                     anchoPagina - margen,
                     altoPagina - 6,
                     { align: 'right' }

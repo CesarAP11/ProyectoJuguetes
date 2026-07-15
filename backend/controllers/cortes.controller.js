@@ -810,74 +810,289 @@ function agregarFilaPdf(doc, etiqueta, valor, opciones = {}) {
     doc.moveDown(0.7);
 }
 
+function obtenerRutaLogoPdfCorte() {
+    return path.join(
+        __dirname,
+        '..',
+        'assets',
+        'logo-juguetesfun-pdf.png'
+    );
+}
+
+function dibujarLogoPdfCorte(doc, rutaLogo, x, y, opciones) {
+    if (!fs.existsSync(rutaLogo)) {
+        return false;
+    }
+
+    try {
+        doc.image(rutaLogo, x, y, opciones);
+        return true;
+    } catch (errorLogo) {
+        console.warn(
+            'No se pudo insertar el logo en el PDF del corte:',
+            errorLogo.message
+        );
+        return false;
+    }
+}
+
+function dibujarPortadaPdfCorte(doc, {
+    idCorte,
+    fechaGeneracion,
+    jornada,
+    puesto,
+    fechaBase
+}) {
+    const rutaLogo = obtenerRutaLogoPdfCorte();
+    const anchoPagina = doc.page.width;
+    const altoPagina = doc.page.height;
+
+    doc.save();
+
+    doc.rect(0, 0, anchoPagina, altoPagina).fill('#020617');
+
+    doc.fillColor('#031926')
+        .circle(88, altoPagina - 105, 125)
+        .fill();
+
+    doc.fillColor('#1c1024')
+        .circle(anchoPagina - 72, 165, 112)
+        .fill();
+
+    doc.roundedRect(40, 36, anchoPagina - 80, 56, 10)
+        .lineWidth(1)
+        .strokeColor('#1e4054')
+        .stroke();
+
+    doc.font('Helvetica-Bold')
+        .fontSize(12)
+        .fillColor('#bfdbfe')
+        .text('DOCUMENTACIÓN OFICIAL DEL SISTEMA', 58, 55);
+
+    doc.font('Helvetica')
+        .fontSize(8)
+        .fillColor('#94a3b8')
+        .text('JuguetesFun · Documento operativo', 58, 74);
+
+    const logoAgregado = dibujarLogoPdfCorte(
+        doc,
+        rutaLogo,
+        118,
+        125,
+        {
+            fit: [360, 250],
+            align: 'center',
+            valign: 'center'
+        }
+    );
+
+    if (!logoAgregado) {
+        doc.font('Helvetica-Bold')
+            .fontSize(34)
+            .fillColor('#10b981')
+            .text('JuguetesFun', 50, 220, {
+                width: anchoPagina - 100,
+                align: 'center'
+            });
+    }
+
+    doc.font('Helvetica-Bold')
+        .fontSize(28)
+        .fillColor('#ffffff')
+        .text('CORTE DE CAJA', 50, 420, {
+            width: anchoPagina - 100,
+            align: 'center'
+        });
+
+    doc.font('Helvetica')
+        .fontSize(11)
+        .fillColor('#bae6fd')
+        .text(
+            'Ventas, gastos, efectivo y resultado de la jornada',
+            50,
+            458,
+            {
+                width: anchoPagina - 100,
+                align: 'center'
+            }
+        );
+
+    doc.moveTo(98, 492)
+        .lineTo(anchoPagina - 98, 492)
+        .lineWidth(5)
+        .strokeColor('#10b981')
+        .stroke();
+
+    doc.roundedRect(68, 530, anchoPagina - 136, 135, 13)
+        .lineWidth(1)
+        .fillAndStroke('#031424', '#1e4054');
+
+    doc.font('Helvetica-Bold')
+        .fontSize(9)
+        .fillColor('#10b981')
+        .text('INFORMACIÓN DEL CORTE', 88, 552, {
+            width: anchoPagina - 176,
+            align: 'center'
+        });
+
+    doc.font('Helvetica-Bold')
+        .fontSize(14)
+        .fillColor('#ffffff')
+        .text(
+            texto(jornada, 'Jornada sin nombre'),
+            88,
+            577,
+            {
+                width: anchoPagina - 176,
+                align: 'center'
+            }
+        );
+
+    doc.font('Helvetica')
+        .fontSize(9)
+        .fillColor('#cbd5e1')
+        .text(
+            `${texto(puesto, 'Sin puesto')} · ${texto(fechaBase, 'Sin fecha')}`,
+            88,
+            605,
+            {
+                width: anchoPagina - 176,
+                align: 'center'
+            }
+        );
+
+    doc.font('Helvetica')
+        .fontSize(8)
+        .fillColor('#94a3b8')
+        .text(
+            `Folio: ${idCorte} · Generado: ${fechaGeneracion}`,
+            88,
+            628,
+            {
+                width: anchoPagina - 176,
+                align: 'center'
+            }
+        );
+
+    doc.font('Helvetica-Bold')
+        .fontSize(8)
+        .fillColor('#f97316')
+        .text(
+            'JuguetesFun',
+            46,
+            altoPagina - 72,
+            {
+                lineBreak: false
+            }
+        );
+
+    doc.font('Helvetica')
+        .fontSize(7)
+        .fillColor('#94a3b8')
+        .text(
+            'Sistema de ventas, inventario y control operativo',
+            46,
+            altoPagina - 58,
+            {
+                lineBreak: false
+            }
+        );
+
+    doc.font('Helvetica')
+        .fontSize(7)
+        .fillColor('#94a3b8')
+        .text(
+            'Uso interno y operativo',
+            anchoPagina - 196,
+            altoPagina - 65,
+            {
+                width: 150,
+                align: 'right',
+                lineBreak: false
+            }
+        );
+
+    doc.restore();
+}
+
 function dibujarEncabezadoPdfCorte(doc, {
     idCorte,
     fechaGeneracion,
     titulo = 'Reporte de corte de caja'
 }) {
-    const rutaLogo = path.join(
-        __dirname,
-        '..',
-        'assets',
-        'logo-juguetesfun.png'
-    );
+    const rutaLogo = obtenerRutaLogoPdfCorte();
+    const anchoPagina = doc.page.width;
 
     doc.save();
 
-    doc.rect(0, 0, doc.page.width, 105).fill('#020617');
+    doc.rect(0, 0, anchoPagina, 78).fill('#ffffff');
 
-    if (fs.existsSync(rutaLogo)) {
-        try {
-            doc.image(rutaLogo, 50, 16, {
-                fit: [205, 62],
-                align: 'left',
-                valign: 'center'
-            });
-        } catch (errorLogo) {
-            console.warn(
-                'No se pudo insertar el logo en el PDF del corte:',
-                errorLogo.message
-            );
-
-            doc.font('Helvetica-Bold')
-                .fontSize(24)
-                .fillColor('#10b981')
-                .text('JuguetesFun', 50, 38);
+    const logoAgregado = dibujarLogoPdfCorte(
+        doc,
+        rutaLogo,
+        50,
+        10,
+        {
+            fit: [105, 52],
+            align: 'left',
+            valign: 'center'
         }
-    } else {
-        console.warn(
-            `No se encontró el logo para el PDF del corte: ${rutaLogo}`
-        );
+    );
 
+    if (!logoAgregado) {
         doc.font('Helvetica-Bold')
-            .fontSize(24)
-            .fillColor('#10b981')
-            .text('JuguetesFun', 50, 38);
+            .fontSize(15)
+            .fillColor('#0f172a')
+            .text('JuguetesFun', 50, 28);
     }
-
-    doc.font('Helvetica')
-        .fontSize(10)
-        .fillColor('#cbd5e1')
-        .text(titulo, 50, 82);
 
     doc.font('Helvetica-Bold')
         .fontSize(10)
-        .fillColor('#ffffff')
-        .text(`Folio: ${idCorte}`, 330, 42, {
-            width: 215,
-            align: 'right'
-        });
+        .fillColor('#0f172a')
+        .text(
+            texto(titulo).toUpperCase(),
+            255,
+            19,
+            {
+                width: anchoPagina - 305,
+                align: 'right'
+            }
+        );
 
     doc.font('Helvetica')
-        .fontSize(9)
-        .fillColor('#cbd5e1')
-        .text(`Generado: ${fechaGeneracion}`, 330, 62, {
-            width: 215,
-            align: 'right'
-        });
+        .fontSize(7.5)
+        .fillColor('#475569')
+        .text(
+            `Sistema de ventas, inventario y control operativo · Folio ${idCorte}`,
+            225,
+            36,
+            {
+                width: anchoPagina - 275,
+                align: 'right'
+            }
+        );
+
+    doc.font('Helvetica')
+        .fontSize(7)
+        .fillColor('#059669')
+        .text(
+            `Generado: ${fechaGeneracion}`,
+            225,
+            51,
+            {
+                width: anchoPagina - 275,
+                align: 'right'
+            }
+        );
+
+    doc.moveTo(50, 68)
+        .lineTo(anchoPagina - 50, 68)
+        .lineWidth(0.6)
+        .strokeColor('#cbd5e1')
+        .stroke();
 
     doc.restore();
-    doc.y = 130;
+    doc.y = 92;
 }
 
 async function descargarPdfCorte(req, res) {
@@ -936,6 +1151,7 @@ async function descargarPdfCorte(req, res) {
         const doc = new PDFDocument({
             size: 'A4',
             margin: 50,
+            bufferPages: true,
             info: {
                 Title: `Corte de caja ${texto(jornada?.nombre_jornada, idCorte)}`,
                 Author: 'JuguetesFun'
@@ -960,11 +1176,19 @@ async function descargarPdfCorte(req, res) {
             titulo: 'Reporte de corte de caja'
         };
 
+        dibujarPortadaPdfCorte(doc, {
+            idCorte,
+            fechaGeneracion,
+            jornada: jornada?.nombre_jornada,
+            puesto: puesto?.nombre,
+            fechaBase: jornada?.fecha_base
+        });
+
         doc.on('pageAdded', () => {
             dibujarEncabezadoPdfCorte(doc, datosEncabezado);
         });
 
-        dibujarEncabezadoPdfCorte(doc, datosEncabezado);
+        doc.addPage();
 
         doc.font('Helvetica-Bold')
             .fontSize(15)
@@ -1097,6 +1321,49 @@ async function descargarPdfCorte(req, res) {
             width: 195,
             align: 'center'
         });
+
+        const rangoPaginas = doc.bufferedPageRange();
+        const paginasContenido = Math.max(1, rangoPaginas.count - 1);
+
+        for (
+            let indicePagina = 1;
+            indicePagina < rangoPaginas.count;
+            indicePagina += 1
+        ) {
+            doc.switchToPage(
+                rangoPaginas.start + indicePagina
+            );
+
+            doc.moveTo(50, doc.page.height - 92)
+                .lineTo(doc.page.width - 50, doc.page.height - 92)
+                .lineWidth(0.4)
+                .strokeColor('#cbd5e1')
+                .stroke();
+
+            doc.font('Helvetica')
+                .fontSize(7)
+                .fillColor('#64748b')
+                .text(
+                    'JuguetesFun · Sistema de ventas, inventario y control operativo',
+                    50,
+                    doc.page.height - 82,
+                    {
+                        width: 350,
+                        lineBreak: false
+                    }
+                );
+
+            doc.text(
+                `Página ${indicePagina} de ${paginasContenido}`,
+                doc.page.width - 160,
+                doc.page.height - 82,
+                {
+                    width: 110,
+                    align: 'right',
+                    lineBreak: false
+                }
+            );
+        }
 
         doc.end();
 
