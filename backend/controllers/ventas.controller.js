@@ -340,10 +340,12 @@ async function buscarInventarioPorCodigo(req, res) {
 
 async function restaurarInventarioPorError(detallesInsertados, idVenta) {
     try {
+        // El trigger trg_preparar_detalle_venta solo descuenta inventario_puesto
+        // (no toca lotes_inventario), así que aquí solo restauramos eso.
         for (const detalle of detallesInsertados) {
             const { data: inv } = await supabaseAdmin
                 .from('inventario_puesto')
-                .select('cantidad_disponible, id_lote')
+                .select('cantidad_disponible')
                 .eq('id_inventario_puesto', detalle.id_inventario_puesto)
                 .single();
 
@@ -355,24 +357,6 @@ async function restaurarInventarioPorError(detallesInsertados, idVenta) {
                         ultima_actualizacion: new Date().toISOString()
                     })
                     .eq('id_inventario_puesto', detalle.id_inventario_puesto);
-
-                if (inv.id_lote) {
-                    const { data: lote } = await supabaseAdmin
-                        .from('lotes_inventario')
-                        .select('cantidad_disponible')
-                        .eq('id_lote', inv.id_lote)
-                        .single();
-
-                    if (lote) {
-                        await supabaseAdmin
-                            .from('lotes_inventario')
-                            .update({
-                                cantidad_disponible: Number(lote.cantidad_disponible || 0) + Number(detalle.cantidad || 0),
-                                ultima_actualizacion: new Date().toISOString()
-                            })
-                            .eq('id_lote', inv.id_lote);
-                    }
-                }
             }
         }
 
@@ -509,19 +493,7 @@ async function registrarVenta(req, res) {
 
             const { data: inventario, error: inventarioError } = await supabaseAdmin
                 .from('inventario_puesto')
-                .select(`
-                    id_inventario_puesto,
-                    cantidad_disponible,
-                    estado,
-                    id_lote,
-                    id_puesto,
-                    id_producto,
-                    id_propietario,
-                    lotes_inventario (
-                        costo_unitario,
-                        cantidad_disponible
-                    )
-                `)
+                .select('id_inventario_puesto, cantidad_disponible, estado, id_puesto')
                 .eq('id_inventario_puesto', producto.id_inventario_puesto)
                 .single();
 
@@ -563,19 +535,22 @@ async function registrarVenta(req, res) {
                 });
             }
 
-            const costoUnitarioReal = Number(inventario.lotes_inventario?.costo_unitario || 0);
-
+            // El trigger trg_preparar_detalle_venta se encarga de:
+            // - fijar el costo_unitario_snapshot real (lo que pongamos aquí se sobreescribe)
+            // - descontar inventario_puesto.cantidad_disponible
+            // - insertar el movimiento de auditoría en movimientos_inventario
+            // No dupliques ninguna de esas acciones aquí.
             const { data: detalle, error: detalleError } = await supabaseAdmin
                 .from('detalle_ventas')
                 .insert({
                     id_venta: idVentaCreada,
                     id_inventario_puesto: producto.id_inventario_puesto,
-                    id_producto: producto.id_producto || inventario.id_producto || null,
-                    id_lote: producto.id_lote || inventario.id_lote || null,
-                    id_propietario_snapshot: producto.id_propietario_snapshot || inventario.id_propietario || null,
+                    id_producto: producto.id_producto || null,
+                    id_lote: producto.id_lote || null,
+                    id_propietario_snapshot: producto.id_propietario_snapshot || null,
                     cantidad,
                     precio_unitario_venta: precio,
-                    costo_unitario_snapshot: costoUnitarioReal
+                    costo_unitario_snapshot: 0
                 })
                 .select('id_detalle_venta, id_inventario_puesto, cantidad')
                 .single();
@@ -583,63 +558,13 @@ async function registrarVenta(req, res) {
             if (detalleError) {
                 await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
 
-                return res.status(500).json({
+                return res.status(400).json({
                     ok: false,
-                    mensaje: 'No se pudo registrar un producto de la venta.',
-                    error: detalleError.message
+                    mensaje: detalleError.message || 'No se pudo registrar un producto de la venta.'
                 });
             }
 
             detallesInsertados.push(detalle);
-
-            const nuevoDisponibleInventario = disponibleActual - cantidad;
-
-            const { error: descontarInventarioError } = await supabaseAdmin
-                .from('inventario_puesto')
-                .update({
-                    cantidad_disponible: nuevoDisponibleInventario,
-                    ultima_actualizacion: new Date().toISOString()
-                })
-                .eq('id_inventario_puesto', producto.id_inventario_puesto);
-
-            if (descontarInventarioError) {
-                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
-
-                return res.status(500).json({
-                    ok: false,
-                    mensaje: 'No se pudo descontar el inventario.',
-                    error: descontarInventarioError.message
-                });
-            }
-
-            if (inventario.id_lote) {
-                const disponibleLoteActual = Number(inventario.lotes_inventario?.cantidad_disponible || 0);
-
-                await supabaseAdmin
-                    .from('lotes_inventario')
-                    .update({
-                        cantidad_disponible: Math.max(disponibleLoteActual - cantidad, 0),
-                        ultima_actualizacion: new Date().toISOString()
-                    })
-                    .eq('id_lote', inventario.id_lote);
-            }
-
-            await supabaseAdmin
-                .from('movimientos_inventario')
-                .insert({
-                    id_inventario_puesto: producto.id_inventario_puesto,
-                    id_producto: inventario.id_producto || null,
-                    id_lote: inventario.id_lote || null,
-                    id_propietario: inventario.id_propietario || null,
-                    id_puesto: inventario.id_puesto || null,
-                    id_venta: idVentaCreada,
-                    tipo_movimiento: 'venta',
-                    cantidad,
-                    stock_anterior: disponibleActual,
-                    stock_nuevo: nuevoDisponibleInventario,
-                    descripcion: 'Descuento de stock por venta registrada.',
-                    registrado_por: req.usuario.id
-                });
         }
 
         for (const pago of pagos) {
