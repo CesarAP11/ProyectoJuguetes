@@ -1,7 +1,51 @@
+const PDFDocument = require('pdfkit');
 const { supabaseAdmin } = require('../services/supabase.service');
 
 function numero(valor) {
     return Number(valor || 0);
+}
+
+function texto(valor, respaldo = '-') {
+    const contenido = String(valor ?? '').trim();
+    return contenido || respaldo;
+}
+
+function formatoMoneda(valor) {
+    return numero(valor).toLocaleString('es-MX', {
+        style: 'currency',
+        currency: 'MXN'
+    });
+}
+
+function formatoFecha(fecha) {
+    if (!fecha) {
+        return '-';
+    }
+
+    return new Date(fecha).toLocaleString('es-MX', {
+        timeZone: 'America/Mexico_City',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+async function consultarCortePorJornada(idJornada) {
+    const { data, error } = await supabaseAdmin
+        .from('cortes_caja')
+        .select('*')
+        .eq('id_jornada', idJornada)
+        .order('fecha_hora_corte', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        throw error;
+    }
+
+    return data || null;
 }
 
 async function obtenerJornadasParaCorte(req, res) {
@@ -17,8 +61,7 @@ async function obtenerJornadasParaCorte(req, res) {
             return res.status(500).json({
                 ok: false,
                 mensaje: 'Error al consultar jornadas.',
-                error: jornadasError.message,
-                detalle: jornadasError
+                error: jornadasError.message
             });
         }
 
@@ -39,43 +82,70 @@ async function obtenerJornadasParaCorte(req, res) {
                 .in('id_puesto', idsPuestos);
 
             if (puestosError) {
-                console.error('Error al consultar puestos para corte:', puestosError);
-
                 return res.status(500).json({
                     ok: false,
                     mensaje: 'Error al consultar puestos.',
-                    error: puestosError.message,
-                    detalle: puestosError
+                    error: puestosError.message
                 });
             }
 
             puestos = puestosData || [];
         }
 
-        const mapaPuestos = new Map();
+        const mapaPuestos = new Map(
+            puestos.map((puesto) => [puesto.id_puesto, puesto])
+        );
 
-        puestos.forEach((puesto) => {
-            mapaPuestos.set(puesto.id_puesto, puesto);
+        const idsJornadas = (jornadas || [])
+            .map((jornada) => jornada.id_jornada)
+            .filter(Boolean);
+
+        let cortes = [];
+
+        if (idsJornadas.length > 0) {
+            const { data: cortesData, error: cortesError } = await supabaseAdmin
+                .from('cortes_caja')
+                .select('id_corte, id_jornada, fecha_hora_corte')
+                .in('id_jornada', idsJornadas);
+
+            if (cortesError) {
+                return res.status(500).json({
+                    ok: false,
+                    mensaje: 'Error al consultar cortes existentes.',
+                    error: cortesError.message
+                });
+            }
+
+            cortes = cortesData || [];
+        }
+
+        const mapaCortes = new Map();
+
+        cortes.forEach((corte) => {
+            mapaCortes.set(corte.id_jornada, corte);
         });
 
         const jornadasFormateadas = (jornadas || []).map((jornada) => {
             const puesto = mapaPuestos.get(jornada.id_puesto);
+            const corte = mapaCortes.get(jornada.id_jornada);
 
             return {
                 id_jornada: jornada.id_jornada,
                 id_puesto: jornada.id_puesto,
                 nombre_jornada: jornada.nombre_jornada || 'Sin nombre',
                 fecha_base: jornada.fecha_base || null,
-                hora_inicio: jornada.hora_inicio || null,
                 fecha_hora_inicio: jornada.fecha_hora_inicio || jornada.fecha_creacion || null,
                 fecha_hora_cierre_real: jornada.fecha_hora_cierre_real || null,
                 estado: jornada.estado || 'sin estado',
-                observaciones: jornada.observaciones || null,
-                puesto: puesto?.nombre || 'Sin puesto'
+                observaciones: jornada.observaciones || jornada.notas || null,
+                puesto: puesto?.nombre || 'Sin puesto',
+                corte_guardado: Boolean(corte),
+                id_corte: corte?.id_corte || null,
+                fecha_hora_corte: corte?.fecha_hora_corte || null
             };
         });
 
-        res.json({
+        return res.json({
             ok: true,
             jornadas: jornadasFormateadas
         });
@@ -83,7 +153,7 @@ async function obtenerJornadasParaCorte(req, res) {
     } catch (error) {
         console.error('Error interno al consultar jornadas para corte:', error);
 
-        res.status(500).json({
+        return res.status(500).json({
             ok: false,
             mensaje: 'Error interno al consultar jornadas para corte.',
             error: error.message
@@ -104,7 +174,7 @@ async function obtenerResumenCorte(req, res) {
 
         const { data: jornada, error: jornadaError } = await supabaseAdmin
             .from('jornadas')
-            .select('id_jornada, id_puesto, nombre_jornada, fecha_base, estado')
+            .select('id_jornada, id_puesto, nombre_jornada, fecha_base, fecha_hora_inicio, fecha_hora_cierre_real, estado')
             .eq('id_jornada', idJornada)
             .single();
 
@@ -114,6 +184,12 @@ async function obtenerResumenCorte(req, res) {
                 mensaje: 'Jornada no encontrada.'
             });
         }
+
+        const { data: puesto } = await supabaseAdmin
+            .from('puestos')
+            .select('id_puesto, nombre')
+            .eq('id_puesto', jornada.id_puesto)
+            .maybeSingle();
 
         const { data: ventas, error: ventasError } = await supabaseAdmin
             .from('ventas')
@@ -130,7 +206,6 @@ async function obtenerResumenCorte(req, res) {
         }
 
         const idsVentas = (ventas || []).map((venta) => venta.id_venta);
-
         let detalles = [];
         let pagos = [];
 
@@ -189,11 +264,9 @@ async function obtenerResumenCorte(req, res) {
             metodosPago = metodosData || [];
         }
 
-        const mapaMetodosPago = new Map();
-
-        metodosPago.forEach((metodo) => {
-            mapaMetodosPago.set(metodo.id_metodo_pago, metodo);
-        });
+        const mapaMetodosPago = new Map(
+            metodosPago.map((metodo) => [metodo.id_metodo_pago, metodo])
+        );
 
         const { data: gastosRaw, error: gastosError } = await supabaseAdmin
             .from('gastos_jornada')
@@ -201,13 +274,10 @@ async function obtenerResumenCorte(req, res) {
             .eq('id_jornada', idJornada);
 
         if (gastosError) {
-            console.error('Error al consultar gastos:', gastosError);
-
             return res.status(500).json({
                 ok: false,
                 mensaje: 'Error al consultar gastos.',
-                error: gastosError.message,
-                detalle: gastosError
+                error: gastosError.message
             });
         }
 
@@ -217,33 +287,19 @@ async function obtenerResumenCorte(req, res) {
                 id_jornada: gasto.id_jornada,
                 concepto: gasto.concepto || 'Sin concepto',
                 monto: numero(gasto.monto),
-                fecha_gasto: gasto.fecha_gasto || gasto.fecha_creacion || gasto.created_at || null,
+                fecha_gasto: gasto.fecha_hora || gasto.fecha_creacion || null,
                 registrado_por: gasto.registrado_por || null
             }))
-            .sort((a, b) => {
-                return new Date(b.fecha_gasto || 0) - new Date(a.fecha_gasto || 0);
-            });
+            .sort((a, b) => new Date(b.fecha_gasto || 0) - new Date(a.fecha_gasto || 0));
 
-        const { data: corteExistente } = await supabaseAdmin
-            .from('cortes_caja')
-            .select('*')
-            .eq('id_jornada', idJornada)
-            .order('fecha_corte', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const corteExistente = await consultarCortePorJornada(idJornada);
 
-        let totalVentas = 0;
-        let totalEfectivo = 0;
-        let totalTransferencia = 0;
-        let totalTerminal = 0;
-        let totalOtros = 0;
-        let gananciaBruta = 0;
+        const totalVentas = (ventas || []).reduce(
+            (suma, venta) => suma + numero(venta.total_venta),
+            0
+        );
 
-        totalVentas = (ventas || []).reduce((suma, venta) => {
-            return suma + numero(venta.total_venta);
-        }, 0);
-
-        gananciaBruta = (detalles || []).reduce((suma, detalle) => {
+        const gananciaBruta = (detalles || []).reduce((suma, detalle) => {
             const cantidad = numero(detalle.cantidad);
             const precio = numero(detalle.precio_unitario_venta);
             const costo = numero(detalle.costo_unitario_snapshot);
@@ -251,8 +307,15 @@ async function obtenerResumenCorte(req, res) {
             return suma + ((cantidad * precio) - (cantidad * costo));
         }, 0);
 
+        let totalEfectivo = 0;
+        let totalTransferencia = 0;
+        let totalTerminal = 0;
+        let totalOtros = 0;
+
         for (const pago of pagos || []) {
-            const metodo = pago.id_metodo_pago ? mapaMetodosPago.get(pago.id_metodo_pago) : null;
+            const metodo = pago.id_metodo_pago
+                ? mapaMetodosPago.get(pago.id_metodo_pago)
+                : null;
 
             const codigo = String(
                 metodo?.codigo ||
@@ -280,9 +343,10 @@ async function obtenerResumenCorte(req, res) {
             }
         }
 
-        const totalGastos = (gastos || []).reduce((suma, gasto) => {
-            return suma + numero(gasto.monto);
-        }, 0);
+        const totalGastos = gastos.reduce(
+            (suma, gasto) => suma + numero(gasto.monto),
+            0
+        );
 
         const efectivoEsperado = totalEfectivo - totalGastos;
         const gananciaNeta = gananciaBruta - totalGastos;
@@ -290,7 +354,10 @@ async function obtenerResumenCorte(req, res) {
         const resumen = {
             id_jornada: idJornada,
             jornada: jornada.nombre_jornada,
+            puesto: puesto?.nombre || 'Sin puesto',
             fecha_base: jornada.fecha_base,
+            fecha_hora_inicio: jornada.fecha_hora_inicio,
+            fecha_hora_cierre_real: jornada.fecha_hora_cierre_real,
             estado_jornada: jornada.estado,
 
             total_ventas: totalVentas,
@@ -312,16 +379,44 @@ async function obtenerResumenCorte(req, res) {
             corte: corteExistente || null
         };
 
-        res.json({
+        return res.json({
             ok: true,
             resumen,
-            gastos: gastos || []
+            gastos
         });
 
     } catch (error) {
-        res.status(500).json({
+        console.error('Error interno al generar resumen de corte:', error);
+
+        return res.status(500).json({
             ok: false,
             mensaje: 'Error interno al generar resumen de corte.',
+            error: error.message
+        });
+    }
+}
+
+async function obtenerCortePorJornada(req, res) {
+    try {
+        const { idJornada } = req.params;
+        const corte = await consultarCortePorJornada(idJornada);
+
+        if (!corte) {
+            return res.status(404).json({
+                ok: false,
+                mensaje: 'La jornada todavía no tiene un corte de caja.'
+            });
+        }
+
+        return res.json({
+            ok: true,
+            corte
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            ok: false,
+            mensaje: 'No se pudo consultar el corte de caja.',
             error: error.message
         });
     }
@@ -335,6 +430,15 @@ async function registrarGasto(req, res) {
             return res.status(400).json({
                 ok: false,
                 mensaje: 'Selecciona una jornada.'
+            });
+        }
+
+        const corteExistente = await consultarCortePorJornada(id_jornada);
+
+        if (corteExistente) {
+            return res.status(409).json({
+                ok: false,
+                mensaje: 'La jornada ya tiene un corte de caja. No se pueden registrar más gastos.'
             });
         }
 
@@ -371,14 +475,14 @@ async function registrarGasto(req, res) {
             });
         }
 
-        res.status(201).json({
+        return res.status(201).json({
             ok: true,
             mensaje: 'Gasto registrado correctamente.',
             gasto: data
         });
 
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             ok: false,
             mensaje: 'Error interno al registrar gasto.',
             error: error.message
@@ -390,10 +494,25 @@ async function eliminarGasto(req, res) {
     try {
         const { idGasto } = req.params;
 
-        if (!idGasto) {
-            return res.status(400).json({
+        const { data: gasto, error: gastoError } = await supabaseAdmin
+            .from('gastos_jornada')
+            .select('id_gasto, id_jornada')
+            .eq('id_gasto', idGasto)
+            .single();
+
+        if (gastoError || !gasto) {
+            return res.status(404).json({
                 ok: false,
-                mensaje: 'No se recibió el gasto.'
+                mensaje: 'Gasto no encontrado.'
+            });
+        }
+
+        const corteExistente = await consultarCortePorJornada(gasto.id_jornada);
+
+        if (corteExistente) {
+            return res.status(409).json({
+                ok: false,
+                mensaje: 'La jornada ya tiene un corte de caja. No se pueden eliminar gastos.'
             });
         }
 
@@ -410,13 +529,13 @@ async function eliminarGasto(req, res) {
             });
         }
 
-        res.json({
+        return res.json({
             ok: true,
             mensaje: 'Gasto eliminado correctamente.'
         });
 
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             ok: false,
             mensaje: 'Error interno al eliminar gasto.',
             error: error.message
@@ -450,7 +569,22 @@ async function guardarCorteCaja(req, res) {
             });
         }
 
-        if (efectivo_contado === undefined || efectivo_contado === null || Number(efectivo_contado) < 0) {
+        const corteExistente = await consultarCortePorJornada(id_jornada);
+
+        if (corteExistente) {
+            return res.status(409).json({
+                ok: false,
+                mensaje: 'Esta jornada ya cuenta con un corte de caja.',
+                corte_guardado: true,
+                corte: corteExistente
+            });
+        }
+
+        if (
+            efectivo_contado === undefined ||
+            efectivo_contado === null ||
+            Number(efectivo_contado) < 0
+        ) {
             return res.status(400).json({
                 ok: false,
                 mensaje: 'Ingresa el efectivo contado.'
@@ -461,24 +595,47 @@ async function guardarCorteCaja(req, res) {
             .from('cortes_caja')
             .insert({
                 id_jornada,
+                realizado_por: req.usuario.id,
+                cerrado_por: req.usuario.id,
+
+                total_sistema: numero(total_ventas),
+                transferencias_reportadas: numero(total_transferencia),
+                gastos_jornada: numero(total_gastos),
+                notas: observaciones || null,
+
                 total_ventas: numero(total_ventas),
                 total_efectivo: numero(total_efectivo),
                 total_transferencia: numero(total_transferencia),
                 total_terminal: numero(total_terminal),
                 total_otros: numero(total_otros),
                 total_gastos: numero(total_gastos),
+
                 efectivo_esperado: numero(efectivo_esperado),
                 efectivo_contado: numero(efectivo_contado),
                 diferencia: numero(diferencia),
+                diferencia_efectivo: numero(diferencia),
+
                 ganancia_bruta: numero(ganancia_bruta),
                 ganancia_neta: numero(ganancia_neta),
-                observaciones: observaciones || null,
-                cerrado_por: req.usuario.id
+                total_ganancia: numero(ganancia_neta),
+
+                observaciones: observaciones || null
             })
             .select('*')
             .single();
 
         if (error) {
+            if (error.code === '23505') {
+                const existente = await consultarCortePorJornada(id_jornada);
+
+                return res.status(409).json({
+                    ok: false,
+                    mensaje: 'Esta jornada ya cuenta con un corte de caja.',
+                    corte_guardado: true,
+                    corte: existente
+                });
+            }
+
             return res.status(500).json({
                 ok: false,
                 mensaje: 'No se pudo guardar el corte de caja.',
@@ -505,7 +662,7 @@ async function guardarCorteCaja(req, res) {
             }
         }
 
-        res.status(201).json({
+        return res.status(201).json({
             ok: true,
             mensaje: cerrar_jornada
                 ? 'Corte guardado y jornada cerrada correctamente.'
@@ -514,9 +671,398 @@ async function guardarCorteCaja(req, res) {
         });
 
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             ok: false,
             mensaje: 'Error interno al guardar corte de caja.',
+            error: error.message
+        });
+    }
+}
+
+async function modificarCorteCaja(req, res) {
+    try {
+        const { idCorte } = req.params;
+        const { efectivo_contado, observaciones, motivo } = req.body;
+
+        if (!motivo || !motivo.trim()) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'El motivo de modificación es obligatorio.'
+            });
+        }
+
+        if (
+            efectivo_contado === undefined ||
+            efectivo_contado === null ||
+            Number(efectivo_contado) < 0
+        ) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'Ingresa un efectivo contado válido.'
+            });
+        }
+
+        const { data, error } = await supabaseAdmin.rpc(
+            'modificar_corte_caja_admin',
+            {
+                p_id_corte: idCorte,
+                p_modificado_por: req.usuario.id,
+                p_efectivo_contado: Number(efectivo_contado),
+                p_observaciones: observaciones || null,
+                p_motivo: motivo.trim()
+            }
+        );
+
+        if (error) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: error.message || 'No se pudo modificar el corte de caja.'
+            });
+        }
+
+        return res.json({
+            ok: true,
+            mensaje: 'Corte de caja modificado correctamente.',
+            corte: data
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            ok: false,
+            mensaje: 'Error interno al modificar el corte de caja.',
+            error: error.message
+        });
+    }
+}
+
+async function obtenerHistorialCorte(req, res) {
+    try {
+        const { idCorte } = req.params;
+
+        const { data: historial, error } = await supabaseAdmin
+            .from('cortes_caja_historial')
+            .select('*')
+            .eq('id_corte', idCorte)
+            .order('fecha_modificacion', { ascending: false });
+
+        if (error) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudo consultar el historial del corte.',
+                error: error.message
+            });
+        }
+
+        const idsUsuarios = [
+            ...new Set((historial || []).map((item) => item.modificado_por).filter(Boolean))
+        ];
+
+        let perfiles = [];
+
+        if (idsUsuarios.length > 0) {
+            const { data: perfilesData } = await supabaseAdmin
+                .from('perfiles')
+                .select('id_perfil, nombre_completo')
+                .in('id_perfil', idsUsuarios);
+
+            perfiles = perfilesData || [];
+        }
+
+        const mapaPerfiles = new Map(
+            perfiles.map((perfil) => [perfil.id_perfil, perfil.nombre_completo])
+        );
+
+        return res.json({
+            ok: true,
+            historial: (historial || []).map((item) => ({
+                ...item,
+                modificado_por_nombre:
+                    mapaPerfiles.get(item.modificado_por) || 'Administrador principal'
+            }))
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            ok: false,
+            mensaje: 'Error interno al consultar el historial.',
+            error: error.message
+        });
+    }
+}
+
+function agregarFilaPdf(doc, etiqueta, valor, opciones = {}) {
+    const y = doc.y;
+    const anchoEtiqueta = 180;
+    const anchoValor = 310;
+
+    doc.font('Helvetica-Bold')
+        .fontSize(10)
+        .fillColor('#334155')
+        .text(etiqueta, 50, y, { width: anchoEtiqueta });
+
+    doc.font('Helvetica')
+        .fontSize(10)
+        .fillColor(opciones.color || '#0f172a')
+        .text(texto(valor), 230, y, { width: anchoValor });
+
+    doc.moveDown(0.7);
+}
+
+async function descargarPdfCorte(req, res) {
+    try {
+        const { idCorte } = req.params;
+
+        const { data: corte, error: corteError } = await supabaseAdmin
+            .from('cortes_caja')
+            .select('*')
+            .eq('id_corte', idCorte)
+            .single();
+
+        if (corteError || !corte) {
+            return res.status(404).json({
+                ok: false,
+                mensaje: 'Corte de caja no encontrado.'
+            });
+        }
+
+        const { data: jornada } = await supabaseAdmin
+            .from('jornadas')
+            .select('*')
+            .eq('id_jornada', corte.id_jornada)
+            .maybeSingle();
+
+        const { data: puesto } = jornada?.id_puesto
+            ? await supabaseAdmin
+                .from('puestos')
+                .select('nombre')
+                .eq('id_puesto', jornada.id_puesto)
+                .maybeSingle()
+            : { data: null };
+
+        const idResponsable = corte.realizado_por || corte.cerrado_por;
+
+        const { data: responsable } = idResponsable
+            ? await supabaseAdmin
+                .from('perfiles')
+                .select('nombre_completo, username')
+                .eq('id_perfil', idResponsable)
+                .maybeSingle()
+            : { data: null };
+
+        const { data: gastos } = await supabaseAdmin
+            .from('gastos_jornada')
+            .select('concepto, monto, fecha_hora')
+            .eq('id_jornada', corte.id_jornada)
+            .order('fecha_hora', { ascending: true });
+
+        const { data: historial } = await supabaseAdmin
+            .from('cortes_caja_historial')
+            .select('motivo, fecha_modificacion, modificado_por')
+            .eq('id_corte', idCorte)
+            .order('fecha_modificacion', { ascending: true });
+
+        const doc = new PDFDocument({
+            size: 'A4',
+            margin: 50,
+            info: {
+                Title: `Corte de caja ${texto(jornada?.nombre_jornada, idCorte)}`,
+                Author: 'JuguetesFun'
+            }
+        });
+
+        const partes = [];
+        doc.on('data', (parte) => partes.push(parte));
+
+        const pdfTerminado = new Promise((resolve, reject) => {
+            doc.on('end', () => resolve(Buffer.concat(partes)));
+            doc.on('error', reject);
+        });
+
+        doc.rect(0, 0, doc.page.width, 105).fill('#020617');
+
+        doc.font('Helvetica-Bold')
+            .fontSize(24)
+            .fillColor('#10b981')
+            .text('JuguetesFun', 50, 38);
+
+        doc.font('Helvetica')
+            .fontSize(11)
+            .fillColor('#cbd5e1')
+            .text('Reporte de corte de caja', 50, 70);
+
+        doc.font('Helvetica-Bold')
+            .fontSize(10)
+            .fillColor('#ffffff')
+            .text(`Folio: ${idCorte}`, 330, 42, {
+                width: 215,
+                align: 'right'
+            });
+
+        doc.font('Helvetica')
+            .fontSize(9)
+            .fillColor('#cbd5e1')
+            .text(`Generado: ${formatoFecha(new Date().toISOString())}`, 330, 62, {
+                width: 215,
+                align: 'right'
+            });
+
+        doc.y = 130;
+
+        doc.font('Helvetica-Bold')
+            .fontSize(15)
+            .fillColor('#0f172a')
+            .text('Información de la jornada');
+
+        doc.moveDown(0.8);
+
+        agregarFilaPdf(doc, 'Jornada', jornada?.nombre_jornada);
+        agregarFilaPdf(doc, 'Puesto', puesto?.nombre);
+        agregarFilaPdf(doc, 'Fecha base', jornada?.fecha_base);
+        agregarFilaPdf(doc, 'Apertura', formatoFecha(jornada?.fecha_hora_inicio));
+        agregarFilaPdf(doc, 'Cierre', formatoFecha(jornada?.fecha_hora_cierre_real));
+        agregarFilaPdf(
+            doc,
+            'Responsable del corte',
+            responsable?.nombre_completo || responsable?.username
+        );
+        agregarFilaPdf(doc, 'Fecha del corte', formatoFecha(corte.fecha_hora_corte));
+
+        doc.moveDown(0.8);
+
+        doc.font('Helvetica-Bold')
+            .fontSize(15)
+            .fillColor('#0f172a')
+            .text('Resumen financiero');
+
+        doc.moveDown(0.8);
+
+        agregarFilaPdf(doc, 'Total de ventas', formatoMoneda(corte.total_ventas));
+        agregarFilaPdf(doc, 'Efectivo', formatoMoneda(corte.total_efectivo));
+        agregarFilaPdf(doc, 'Transferencias', formatoMoneda(corte.total_transferencia));
+        agregarFilaPdf(doc, 'Terminal / tarjeta', formatoMoneda(corte.total_terminal));
+        agregarFilaPdf(doc, 'Otros pagos', formatoMoneda(corte.total_otros));
+        agregarFilaPdf(doc, 'Gastos', formatoMoneda(corte.total_gastos), {
+            color: '#dc2626'
+        });
+        agregarFilaPdf(doc, 'Efectivo esperado', formatoMoneda(corte.efectivo_esperado));
+        agregarFilaPdf(doc, 'Efectivo contado', formatoMoneda(corte.efectivo_contado));
+        agregarFilaPdf(doc, 'Diferencia', formatoMoneda(corte.diferencia), {
+            color: Math.abs(numero(corte.diferencia)) <= 0.01
+                ? '#059669'
+                : '#dc2626'
+        });
+        agregarFilaPdf(doc, 'Ganancia bruta', formatoMoneda(corte.ganancia_bruta));
+        agregarFilaPdf(doc, 'Ganancia neta', formatoMoneda(corte.ganancia_neta));
+
+        if ((gastos || []).length > 0) {
+            doc.addPage();
+
+            doc.font('Helvetica-Bold')
+                .fontSize(15)
+                .fillColor('#0f172a')
+                .text('Gastos de la jornada');
+
+            doc.moveDown();
+
+            for (const gasto of gastos) {
+                agregarFilaPdf(
+                    doc,
+                    texto(gasto.concepto, 'Gasto'),
+                    `${formatoMoneda(gasto.monto)} - ${formatoFecha(gasto.fecha_hora)}`
+                );
+            }
+        }
+
+        doc.moveDown();
+
+        doc.font('Helvetica-Bold')
+            .fontSize(12)
+            .fillColor('#0f172a')
+            .text('Observaciones');
+
+        doc.moveDown(0.5);
+
+        doc.font('Helvetica')
+            .fontSize(10)
+            .fillColor('#334155')
+            .text(texto(corte.observaciones, 'Sin observaciones.'), {
+                width: 495
+            });
+
+        if ((historial || []).length > 0) {
+            doc.moveDown();
+
+            doc.font('Helvetica-Bold')
+                .fontSize(12)
+                .fillColor('#0f172a')
+                .text('Historial de modificaciones');
+
+            doc.moveDown(0.5);
+
+            historial.forEach((item, indice) => {
+                doc.font('Helvetica')
+                    .fontSize(9)
+                    .fillColor('#475569')
+                    .text(
+                        `${indice + 1}. ${formatoFecha(item.fecha_modificacion)} - ${texto(item.motivo)}`
+                    );
+            });
+        }
+
+        if (doc.y > 690) {
+            doc.addPage();
+        }
+
+        doc.moveDown(3);
+
+        const yFirmas = doc.y;
+
+        doc.moveTo(65, yFirmas)
+            .lineTo(260, yFirmas)
+            .strokeColor('#64748b')
+            .stroke();
+
+        doc.moveTo(335, yFirmas)
+            .lineTo(530, yFirmas)
+            .strokeColor('#64748b')
+            .stroke();
+
+        doc.font('Helvetica')
+            .fontSize(9)
+            .fillColor('#475569')
+            .text('Firma del encargado', 65, yFirmas + 8, {
+                width: 195,
+                align: 'center'
+            });
+
+        doc.text('Firma del administrador', 335, yFirmas + 8, {
+            width: 195,
+            align: 'center'
+        });
+
+        doc.end();
+
+        const buffer = await pdfTerminado;
+
+        const nombreBase = texto(jornada?.nombre_jornada, 'Corte')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9_-]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+
+        return res.json({
+            ok: true,
+            archivo: `Corte_${nombreBase || 'Jornada'}_${jornada?.fecha_base || 'sin_fecha'}.pdf`,
+            mime_type: 'application/pdf',
+            contenido_base64: buffer.toString('base64')
+        });
+
+    } catch (error) {
+        console.error('Error al generar PDF del corte:', error);
+
+        return res.status(500).json({
+            ok: false,
+            mensaje: 'No se pudo generar el PDF del corte de caja.',
             error: error.message
         });
     }
@@ -525,7 +1071,11 @@ async function guardarCorteCaja(req, res) {
 module.exports = {
     obtenerJornadasParaCorte,
     obtenerResumenCorte,
+    obtenerCortePorJornada,
     registrarGasto,
     eliminarGasto,
-    guardarCorteCaja
+    guardarCorteCaja,
+    modificarCorteCaja,
+    obtenerHistorialCorte,
+    descargarPdfCorte
 };
