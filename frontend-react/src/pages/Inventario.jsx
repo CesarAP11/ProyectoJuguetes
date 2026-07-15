@@ -15,6 +15,8 @@ import {
 import { subirFotoProducto } from '../api/storage.api';
 import { useAuth } from '../context/AuthContext';
 import { puedeGestionarInventario } from '../config/permisos';
+import QrInventarioModal from '../components/qr/QrInventarioModal';
+import QrSeleccionMultipleModal from '../components/qr/QrSeleccionMultipleModal';
 
 const estadoInicialFormulario = {
     id_propietario: '',
@@ -46,6 +48,9 @@ function Inventario() {
 
     const [puestosSeleccionados, setPuestosSeleccionados] = useState({});
     const [idInventarioFoto, setIdInventarioFoto] = useState(null);
+    const [qrSeleccionado, setQrSeleccionado] = useState(null);
+    const [idsQrSeleccionados, setIdsQrSeleccionados] = useState([]);
+    const [modalQrMultipleAbierto, setModalQrMultipleAbierto] = useState(false);
 
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
@@ -111,6 +116,110 @@ function Inventario() {
     useEffect(() => {
         cargarDatosIniciales();
     }, []);
+
+    useEffect(() => {
+        setIdsQrSeleccionados((seleccionActual) =>
+            seleccionActual.filter((idInventario) =>
+                inventario.some(
+                    (item) =>
+                        item.id_inventario_puesto === idInventario &&
+                        puedeSeleccionarQr(item)
+                )
+            )
+        );
+    }, [inventario]);
+
+    function puedeSeleccionarQr(item) {
+        const estado = String(item?.estado || 'activo').toLowerCase();
+
+        return Boolean(item?.codigo_interno) &&
+            Number(item?.cantidad_disponible || 0) > 0 &&
+            estado === 'activo';
+    }
+
+    const inventarioDisponibleParaQr = inventario.filter(puedeSeleccionarQr);
+
+    const itemsQrSeleccionados = inventarioDisponibleParaQr.filter((item) =>
+        idsQrSeleccionados.includes(item.id_inventario_puesto)
+    );
+
+    const todosLosQrSeleccionados =
+        inventarioDisponibleParaQr.length > 0 &&
+        itemsQrSeleccionados.length === inventarioDisponibleParaQr.length;
+
+    const totalEtiquetasQrSeleccionadas = itemsQrSeleccionados.reduce(
+        (total, item) => total + Number(item.cantidad_disponible || 0),
+        0
+    );
+
+    function alternarSeleccionQr(item) {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol permite consultar los códigos QR, pero no imprimir etiquetas.'
+            );
+            return;
+        }
+
+        if (!puedeSeleccionarQr(item)) {
+            mostrarMensaje(
+                'danger',
+                'Solo puedes seleccionar lotes activos, con código QR y existencia disponible.'
+            );
+            return;
+        }
+
+        const idInventario = item.id_inventario_puesto;
+
+        setIdsQrSeleccionados((seleccionActual) =>
+            seleccionActual.includes(idInventario)
+                ? seleccionActual.filter((id) => id !== idInventario)
+                : [...seleccionActual, idInventario]
+        );
+    }
+
+    function alternarTodosLosQr() {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol permite consultar los códigos QR, pero no imprimir etiquetas.'
+            );
+            return;
+        }
+
+        setIdsQrSeleccionados(
+            todosLosQrSeleccionados
+                ? []
+                : inventarioDisponibleParaQr.map(
+                    (item) => item.id_inventario_puesto
+                )
+        );
+    }
+
+    function limpiarSeleccionQr() {
+        setIdsQrSeleccionados([]);
+        setModalQrMultipleAbierto(false);
+    }
+
+    function abrirImpresionQrMultiple() {
+        if (!puedeEditarInventario) {
+            mostrarMensaje(
+                'danger',
+                'Tu rol no permite imprimir etiquetas QR.'
+            );
+            return;
+        }
+
+        if (itemsQrSeleccionados.length === 0) {
+            mostrarMensaje(
+                'danger',
+                'Selecciona al menos un producto con código QR y existencia disponible.'
+            );
+            return;
+        }
+
+        setModalQrMultipleAbierto(true);
+    }
 
     function mostrarMensaje(tipo, texto) {
         setTipoMensaje(tipo);
@@ -574,6 +683,18 @@ function Inventario() {
         }
     }
 
+    function abrirQrInventario(item) {
+        if (!item?.codigo_interno) {
+            mostrarMensaje(
+                'danger',
+                'Este lote todavía no tiene un código QR asignado.'
+            );
+            return;
+        }
+
+        setQrSeleccionado(item);
+    }
+
     function handlePuestoSeleccionado(idInventario, idPuesto) {
         setPuestosSeleccionados((prev) => ({
             ...prev,
@@ -845,16 +966,79 @@ function Inventario() {
                     Cargando inventario...
                 </div>
             ) : (
-                <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[1500px] text-left text-sm">
+                <>
+                    <div className="mb-5 rounded-2xl border border-cyan-500/40 bg-cyan-500/10 p-5">
+                        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-white">
+                                    Impresión múltiple de códigos QR
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-300">
+                                    Selecciona varios lotes para imprimir una hoja o guardar un PDF listo para impresión.
+                                </p>
+
+                                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                                    <span className="font-semibold text-cyan-300">
+                                        {itemsQrSeleccionados.length} producto(s) seleccionado(s)
+                                    </span>
+                                    <span className="font-semibold text-emerald-300">
+                                        {totalEtiquetasQrSeleccionadas} etiqueta(s) por existencia
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                                <button
+                                    type="button"
+                                    onClick={limpiarSeleccionQr}
+                                    disabled={idsQrSeleccionados.length === 0}
+                                    className="rounded-xl border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Limpiar selección
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={abrirImpresionQrMultiple}
+                                    disabled={
+                                        !puedeEditarInventario ||
+                                        itemsQrSeleccionados.length === 0
+                                    }
+                                    className="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Preparar hoja de QR / PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[1760px] text-left text-sm">
                             <thead className="bg-slate-950 text-slate-300">
                                 <tr>
+                                    <th className="px-5 py-4">
+                                        <div className="flex min-w-24 items-center gap-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={todosLosQrSeleccionados}
+                                                disabled={
+                                                    !puedeEditarInventario ||
+                                                    inventarioDisponibleParaQr.length === 0
+                                                }
+                                                onChange={alternarTodosLosQr}
+                                                aria-label="Seleccionar todos los códigos QR disponibles"
+                                                className="h-5 w-5 cursor-pointer rounded border-slate-600 bg-slate-900 text-cyan-500 accent-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
+                                            />
+                                            <span>Seleccionar</span>
+                                        </div>
+                                    </th>
                                     <th className="px-5 py-4">Foto</th>
                                     <th className="px-5 py-4">Producto</th>
                                     <th className="px-5 py-4">Propietario</th>
                                     <th className="px-5 py-4">Puesto</th>
                                     <th className="px-5 py-4">Compra</th>
+                                    <th className="px-5 py-4">Código QR</th>
                                     <th className="px-5 py-4">Disponible</th>
                                     <th className="px-5 py-4">Costo</th>
                                     <th className="px-5 py-4">Venta</th>
@@ -867,7 +1051,7 @@ function Inventario() {
                             <tbody className="divide-y divide-slate-800">
                                 {inventario.length === 0 ? (
                                     <tr>
-                                        <td colSpan="11" className="px-5 py-10 text-center text-slate-400">
+                                        <td colSpan="13" className="px-5 py-10 text-center text-slate-400">
                                             No hay productos registrados en inventario.
                                         </td>
                                     </tr>
@@ -875,8 +1059,37 @@ function Inventario() {
                                     inventario.map((item) => (
                                         <tr
                                             key={item.id_inventario_puesto}
-                                            className="text-slate-300 transition hover:bg-slate-800/60"
+                                            className={`text-slate-300 transition hover:bg-slate-800/60 ${
+                                                idsQrSeleccionados.includes(
+                                                    item.id_inventario_puesto
+                                                )
+                                                    ? 'bg-cyan-500/10'
+                                                    : ''
+                                            }`}
                                         >
+                                            <td className="px-5 py-4 align-top">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={idsQrSeleccionados.includes(
+                                                        item.id_inventario_puesto
+                                                    )}
+                                                    disabled={
+                                                        !puedeEditarInventario ||
+                                                        !puedeSeleccionarQr(item)
+                                                    }
+                                                    onChange={() => alternarSeleccionQr(item)}
+                                                    aria-label={`Seleccionar QR de ${
+                                                        item.producto || 'producto'
+                                                    }`}
+                                                    title={
+                                                        puedeSeleccionarQr(item)
+                                                            ? 'Agregar este lote a la hoja de etiquetas QR'
+                                                            : 'El lote necesita código QR, estado activo y existencia disponible'
+                                                    }
+                                                    className="mt-2 h-5 w-5 cursor-pointer rounded border-slate-600 bg-slate-900 text-cyan-500 accent-cyan-500 disabled:cursor-not-allowed disabled:opacity-30"
+                                                />
+                                            </td>
+
                                             <td className="px-5 py-4">
                                                 {item.foto_url ? (
                                                     <img
@@ -913,6 +1126,22 @@ function Inventario() {
                                                 <p className="text-xs text-slate-500">
                                                     {item.fecha_compra || ''}
                                                 </p>
+                                            </td>
+
+                                            <td className="px-5 py-4">
+                                                {item.codigo_interno ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => abrirQrInventario(item)}
+                                                        className="rounded-lg border border-cyan-500 bg-cyan-500/10 px-3 py-2 font-mono text-xs font-bold text-cyan-300 transition hover:bg-cyan-500 hover:text-slate-950"
+                                                    >
+                                                        {item.codigo_interno}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs text-yellow-300">
+                                                        Pendiente
+                                                    </span>
+                                                )}
                                             </td>
 
                                             <td className="px-5 py-4">
@@ -958,6 +1187,15 @@ function Inventario() {
                                                             Solo consulta
                                                         </span>
                                                     )}
+
+                                                    <button
+                                                        type="button"
+                                                        disabled={!item.codigo_interno || accionando}
+                                                        onClick={() => abrirQrInventario(item)}
+                                                        className="rounded-lg border border-cyan-500 px-3 py-2 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                                                    >
+                                                        Ver QR
+                                                    </button>
 
                                                     <button
                                                         type="button"
@@ -1039,10 +1277,26 @@ function Inventario() {
                                     ))
                                 )}
                             </tbody>
-                        </table>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                </>
             )}
+
+            <QrInventarioModal
+                abierto={Boolean(qrSeleccionado)}
+                item={qrSeleccionado}
+                puedeImprimir={puedeEditarInventario}
+                onCerrar={() => setQrSeleccionado(null)}
+            />
+
+            <QrSeleccionMultipleModal
+                abierto={modalQrMultipleAbierto}
+                items={itemsQrSeleccionados}
+                puedeImprimir={puedeEditarInventario}
+                onCerrar={() => setModalQrMultipleAbierto(false)}
+                onLimpiarSeleccion={limpiarSeleccionQr}
+            />
         </section>
     );
 }

@@ -6,6 +6,7 @@ const verificarVendedor = require('../middleware/verificarVendedor');
 const {
     obtenerCatalogosVentas,
     listarInventarioPorJornada,
+    buscarInventarioPorCodigo,
     registrarVenta
 } = require('../controllers/ventas.controller');
 
@@ -21,6 +22,7 @@ router.get('/catalogos', obtenerCatalogosVentas);
     GET /api/ventas/jornada/:idJornada/inventario
 */
 router.get('/jornada/:idJornada/inventario', listarInventarioPorJornada);
+router.get('/jornada/:idJornada/codigo/:codigo', buscarInventarioPorCodigo);
 
 /*
     Ruta alternativa por si tu frontend viejo usaba:

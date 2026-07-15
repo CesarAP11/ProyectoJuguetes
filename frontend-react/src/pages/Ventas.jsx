@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
     obtenerCatalogosVentas,
     obtenerInventarioPorJornada,
+    buscarProductoPorCodigo,
     registrarVenta
 } from '../api/ventas.api';
+
+import EscanerQrModal from '../components/qr/EscanerQrModal';
 
 const pagoInicial = {
     id_metodo_pago: '',
@@ -21,6 +24,9 @@ function Ventas() {
     const [carrito, setCarrito] = useState([]);
     const [pagos, setPagos] = useState([pagoInicial]);
     const [observaciones, setObservaciones] = useState('');
+    const [codigoManual, setCodigoManual] = useState('');
+    const [scannerAbierto, setScannerAbierto] = useState(false);
+    const [buscandoCodigo, setBuscandoCodigo] = useState(false);
 
     const [cargando, setCargando] = useState(true);
     const [cargandoInventario, setCargandoInventario] = useState(false);
@@ -94,6 +100,8 @@ function Ventas() {
         const valor = event.target.value;
 
         setIdJornada(valor);
+        setCodigoManual('');
+        setScannerAbierto(false);
         cargarInventarioJornada(valor);
     }
 
@@ -109,7 +117,7 @@ function Ventas() {
         });
     }
 
-    function agregarProducto(producto) {
+    const agregarProducto = useCallback((producto) => {
         setMensaje('');
 
         setCarrito((prev) => {
@@ -144,6 +152,66 @@ function Ventas() {
                 }
             ];
         });
+    }, []);
+
+    const procesarCodigoQr = useCallback(async (codigo) => {
+        if (!idJornada) {
+            throw new Error('Selecciona una jornada antes de escanear.');
+        }
+
+        const codigoLimpio = String(codigo || '').trim().toUpperCase();
+
+        if (!codigoLimpio) {
+            throw new Error('Escribe o escanea un código válido.');
+        }
+
+        try {
+            setBuscandoCodigo(true);
+            setMensaje('');
+
+            const respuesta = await buscarProductoPorCodigo(
+                idJornada,
+                codigoLimpio
+            );
+
+            agregarProducto(respuesta.producto);
+            setCodigoManual('');
+
+            mostrarMensaje(
+                'success',
+                respuesta.mensaje ||
+                `${respuesta.producto?.producto || 'Producto'} agregado al carrito.`
+            );
+
+            return respuesta.producto;
+        } catch (error) {
+            mostrarMensaje(
+                'danger',
+                error.message || 'No se pudo procesar el código QR.'
+            );
+            throw error;
+        } finally {
+            setBuscandoCodigo(false);
+        }
+    }, [agregarProducto, idJornada]);
+
+    async function handleCodigoManual(event) {
+        event.preventDefault();
+
+        try {
+            await procesarCodigoQr(codigoManual);
+        } catch {
+            // El mensaje ya se muestra dentro de procesarCodigoQr.
+        }
+    }
+
+    function abrirScanner() {
+        if (!idJornada) {
+            mostrarMensaje('danger', 'Selecciona una jornada antes de escanear.');
+            return;
+        }
+
+        setScannerAbierto(true);
     }
 
     function quitarProducto(idInventario) {
@@ -395,6 +463,57 @@ function Ventas() {
                 </div>
             </div>
 
+            <div className="mb-8 rounded-2xl border border-cyan-500/40 bg-cyan-500/10 p-6">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                            Venta rápida
+                        </p>
+                        <h2 className="mt-2 text-xl font-bold text-white">
+                            Agregar producto mediante código QR
+                        </h2>
+                        <p className="mt-2 text-sm text-slate-400">
+                            Cada lectura agrega una unidad. El sistema valida la jornada,
+                            el puesto y la existencia disponible.
+                        </p>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={abrirScanner}
+                        disabled={!idJornada || guardando || buscandoCodigo}
+                        className="rounded-xl bg-cyan-400 px-6 py-3 font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Abrir cámara y escanear
+                    </button>
+                </div>
+
+                <form
+                    onSubmit={handleCodigoManual}
+                    className="mt-5 flex flex-col gap-3 sm:flex-row"
+                >
+                    <input
+                        type="text"
+                        value={codigoManual}
+                        disabled={!idJornada || buscandoCodigo}
+                        onChange={(event) =>
+                            setCodigoManual(event.target.value.toUpperCase())
+                        }
+                        className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-mono uppercase text-white outline-none focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        placeholder="JF-L-000001"
+                        autoComplete="off"
+                    />
+
+                    <button
+                        type="submit"
+                        disabled={!idJornada || !codigoManual.trim() || buscandoCodigo}
+                        className="rounded-xl border border-cyan-400 px-5 py-3 font-bold text-cyan-200 transition hover:bg-cyan-400 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        {buscandoCodigo ? 'Buscando...' : 'Agregar código'}
+                    </button>
+                </form>
+            </div>
+
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.4fr_1fr]">
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
                     <h2 className="mb-5 text-xl font-bold text-white">Productos disponibles</h2>
@@ -443,6 +562,12 @@ function Ventas() {
                                             <p className="mt-1 text-sm text-slate-500">
                                                 Disponible: {item.cantidad_disponible}
                                             </p>
+
+                                            {item.codigo_interno && (
+                                                <p className="mt-1 font-mono text-xs text-cyan-300">
+                                                    {item.codigo_interno}
+                                                </p>
+                                            )}
 
                                             <p className="mt-2 font-bold text-emerald-400">
                                                 {formatoMoneda(item.precio_venta_sugerido)}
@@ -722,6 +847,13 @@ function Ventas() {
                     </div>
                 </div>
             </div>
+
+            <EscanerQrModal
+                abierto={scannerAbierto}
+                procesando={buscandoCodigo}
+                onCodigo={procesarCodigoQr}
+                onCerrar={() => setScannerAbierto(false)}
+            />
         </section>
     );
 }

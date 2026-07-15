@@ -125,7 +125,7 @@ async function listarInventarioPorJornada(req, res) {
 
             supabaseAdmin
                 .from('lotes_inventario')
-                .select('id_lote, costo_unitario, precio_venta_sugerido')
+                .select('id_lote, costo_unitario, precio_venta_sugerido, codigo_interno')
                 .in('id_lote', idsLotes)
         ]);
 
@@ -152,6 +152,10 @@ async function listarInventarioPorJornada(req, res) {
 
             return {
                 id_inventario_puesto: item.id_inventario_puesto,
+                id_producto: item.id_producto,
+                id_lote: item.id_lote,
+                id_propietario_snapshot: item.id_propietario,
+                codigo_interno: lote?.codigo_interno || null,
                 producto: producto?.nombre || 'Sin nombre',
                 descripcion: producto?.descripcion || '',
                 foto_url: producto?.foto_url || null,
@@ -171,6 +175,164 @@ async function listarInventarioPorJornada(req, res) {
         res.status(500).json({
             ok: false,
             mensaje: 'Error interno al listar inventario de venta.',
+            error: error.message
+        });
+    }
+}
+
+async function buscarInventarioPorCodigo(req, res) {
+    try {
+        const { idJornada, codigo } = req.params;
+        const codigoLimpio = String(codigo || '').trim().toUpperCase();
+
+        if (!idJornada) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'Selecciona una jornada antes de escanear.'
+            });
+        }
+
+        if (!/^JF-L-\d{6,}$/.test(codigoLimpio)) {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'El código leído no corresponde a un lote de JuguetesFun.'
+            });
+        }
+
+        const { data: jornada, error: jornadaError } = await supabaseAdmin
+            .from('jornadas')
+            .select('id_jornada, id_puesto, estado')
+            .eq('id_jornada', idJornada)
+            .single();
+
+        if (jornadaError || !jornada) {
+            return res.status(404).json({
+                ok: false,
+                mensaje: 'Jornada no encontrada.'
+            });
+        }
+
+        if (jornada.estado !== 'abierta') {
+            return res.status(400).json({
+                ok: false,
+                mensaje: 'La jornada seleccionada no está abierta.'
+            });
+        }
+
+        const { data: lote, error: loteError } = await supabaseAdmin
+            .from('lotes_inventario')
+            .select(`
+                id_lote,
+                id_producto,
+                id_propietario,
+                codigo_interno,
+                costo_unitario,
+                precio_venta_sugerido,
+                estado
+            `)
+            .eq('codigo_interno', codigoLimpio)
+            .maybeSingle();
+
+        if (loteError) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudo consultar el código QR.',
+                error: loteError.message
+            });
+        }
+
+        if (!lote) {
+            return res.status(404).json({
+                ok: false,
+                mensaje: `No existe un producto con el código ${codigoLimpio}.`
+            });
+        }
+
+        const { data: inventario, error: inventarioError } = await supabaseAdmin
+            .from('inventario_puesto')
+            .select('*')
+            .eq('id_lote', lote.id_lote)
+            .eq('id_puesto', jornada.id_puesto)
+            .eq('estado', 'activo')
+            .maybeSingle();
+
+        if (inventarioError) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudo consultar la existencia del producto.',
+                error: inventarioError.message
+            });
+        }
+
+        if (!inventario) {
+            return res.status(409).json({
+                ok: false,
+                mensaje: 'Este producto no se encuentra en el puesto de la jornada seleccionada.'
+            });
+        }
+
+        if (Number(inventario.cantidad_disponible || 0) <= 0) {
+            return res.status(409).json({
+                ok: false,
+                mensaje: 'El producto escaneado ya no tiene existencias disponibles.'
+            });
+        }
+
+        const [productoRes, propietarioRes] = await Promise.all([
+            supabaseAdmin
+                .from('productos')
+                .select('id_producto, nombre, descripcion, foto_url, foto_path')
+                .eq('id_producto', lote.id_producto)
+                .single(),
+
+            supabaseAdmin
+                .from('propietarios')
+                .select('id_propietario, nombre')
+                .eq('id_propietario', lote.id_propietario)
+                .single()
+        ]);
+
+        if (productoRes.error || propietarioRes.error) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'No se pudo consultar la información del producto.',
+                error: {
+                    producto: productoRes.error?.message || null,
+                    propietario: propietarioRes.error?.message || null
+                }
+            });
+        }
+
+        const producto = productoRes.data;
+        const propietario = propietarioRes.data;
+
+        return res.json({
+            ok: true,
+            mensaje: `${producto?.nombre || 'Producto'} agregado por código QR.`,
+            producto: {
+                id_inventario_puesto: inventario.id_inventario_puesto,
+                id_producto: lote.id_producto,
+                id_lote: lote.id_lote,
+                id_propietario_snapshot: lote.id_propietario,
+                codigo_interno: lote.codigo_interno,
+                producto: producto?.nombre || 'Sin nombre',
+                descripcion: producto?.descripcion || '',
+                foto_url: producto?.foto_url || null,
+                foto_path: producto?.foto_path || null,
+                propietario: propietario?.nombre || 'Sin propietario',
+                cantidad_disponible: Number(inventario.cantidad_disponible || 0),
+                precio_venta_sugerido: Number(
+                    inventario.precio_venta_sugerido ||
+                    lote.precio_venta_sugerido ||
+                    0
+                )
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            ok: false,
+            mensaje: 'Error interno al buscar el producto por código QR.',
             error: error.message
         });
     }
@@ -269,7 +431,7 @@ async function registrarVenta(req, res) {
 
         const { data: jornada, error: jornadaError } = await supabaseAdmin
             .from('jornadas')
-            .select('id_jornada, estado')
+            .select('id_jornada, id_puesto, estado')
             .eq('id_jornada', id_jornada)
             .single();
 
@@ -378,6 +540,15 @@ async function registrarVenta(req, res) {
                 return res.status(400).json({
                     ok: false,
                     mensaje: 'Uno de los productos ya no está disponible para venta.'
+                });
+            }
+
+            if (inventario.id_puesto !== jornada.id_puesto) {
+                await restaurarInventarioPorError(detallesInsertados, idVentaCreada);
+
+                return res.status(400).json({
+                    ok: false,
+                    mensaje: 'Uno de los productos no pertenece al puesto de la jornada seleccionada.'
                 });
             }
 
@@ -543,5 +714,6 @@ async function registrarVenta(req, res) {
 module.exports = {
     obtenerCatalogosVentas,
     listarInventarioPorJornada,
+    buscarInventarioPorCodigo,
     registrarVenta
 };

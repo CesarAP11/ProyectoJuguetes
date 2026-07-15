@@ -77,6 +77,8 @@ async function listarInventario(req, res) {
                 ),
                 lotes_inventario (
                     id_lote,
+                    codigo_interno,
+                    fecha_generacion_codigo,
                     cantidad_inicial,
                     costo_unitario,
                     precio_venta_sugerido,
@@ -105,6 +107,9 @@ async function listarInventario(req, res) {
 
             return {
                 id_inventario_puesto: item.id_inventario_puesto,
+                id_lote: item.lotes_inventario?.id_lote || null,
+                codigo_interno: item.lotes_inventario?.codigo_interno || null,
+                fecha_generacion_codigo: item.lotes_inventario?.fecha_generacion_codigo || null,
                 id_puesto: item.id_puesto,
                 producto: item.productos?.nombre || 'Sin nombre',
                 descripcion: item.productos?.descripcion || '',
@@ -317,9 +322,10 @@ async function registrarEntradaInventario(req, res) {
                 cantidad_disponible: cantidadNumero,
                 costo_unitario: costoNumero,
                 precio_venta_sugerido: precioNumero,
-                estado: 'disponible'
+                estado: 'disponible',
+                codigo_generado_por: req.usuario.id
             })
-            .select('id_lote')
+            .select('id_lote, codigo_interno, fecha_generacion_codigo')
             .single();
 
         if (loteError) {
@@ -358,6 +364,8 @@ async function registrarEntradaInventario(req, res) {
                 id_producto: producto.id_producto,
                 id_compra: compra.id_compra,
                 id_lote: lote.id_lote,
+                codigo_interno: lote.codigo_interno,
+                fecha_generacion_codigo: lote.fecha_generacion_codigo,
                 id_inventario_puesto: inventarioPuesto.id_inventario_puesto,
                 foto_url: foto_url || null
             }
