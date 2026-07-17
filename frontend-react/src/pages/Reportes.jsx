@@ -181,6 +181,8 @@ function Reportes() {
     const [porMetodoPago, setPorMetodoPago] = useState([]);
     const [productosTop, setProductosTop] = useState([]);
     const [detalleVentas, setDetalleVentas] = useState([]);
+    const [resumenInventario, setResumenInventario] = useState(null);
+    const [inventarioPorPropietario, setInventarioPorPropietario] = useState([]);
 
     const [cargando, setCargando] = useState(true);
     const [generandoPdf, setGenerandoPdf] = useState(false);
@@ -223,6 +225,8 @@ function Reportes() {
             setPorMetodoPago(data.porMetodoPago || []);
             setProductosTop(data.productosTop || []);
             setDetalleVentas(data.detalleVentas || []);
+            setResumenInventario(data.resumenInventario || null);
+            setInventarioPorPropietario(data.inventarioPorPropietario || []);
 
         } catch (error) {
             console.error('Error al cargar reportes:', error);
@@ -470,7 +474,7 @@ function Reportes() {
                 documento.setFont('helvetica', 'normal');
                 documento.setFontSize(9.5);
                 documento.text(
-                    'Ventas, costos, ganancias y desempeño operativo',
+                    'Ventas, inventario, costos, ganancias y desempeño operativo',
                     anchoPagina / 2,
                     139,
                     { align: 'center' }
@@ -715,8 +719,9 @@ function Reportes() {
             documento.setTextColor(71, 85, 105);
 
             const apartados = [
+                'Inversión y ganancia potencial por propietario',
                 'Ventas por puesto',
-                'Ganancia por propietario',
+                'Ganancia realizada por propietario',
                 'Ventas por vendedor',
                 'Métodos de pago',
                 'Productos más vendidos con fotografías',
@@ -724,10 +729,10 @@ function Reportes() {
             ];
 
             apartados.forEach((apartado, index) => {
-                const columna = index >= 3 ? 1 : 0;
-                const fila = index % 3;
+                const columna = index >= 4 ? 1 : 0;
+                const fila = index % 4;
                 const x = margen + columna * 135;
-                const y = 132 + fila * 12;
+                const y = 130 + fila * 10;
 
                 documento.setFillColor(236, 253, 245);
                 documento.circle(x + 2.2, y - 2.2, 1.6, 'F');
@@ -737,6 +742,118 @@ function Reportes() {
                     x + 7,
                     y
                 );
+            });
+
+            // Inversión y ganancia potencial del inventario actual.
+            const inventarioPropietariosPdf = await Promise.all(
+                inventarioPorPropietario.map(async (item) => {
+                    const fotosPdf = await Promise.all(
+                        (item.fotos || [])
+                            .slice(0, 4)
+                            .map((foto) => obtenerImagen(foto.foto_url))
+                    );
+
+                    return {
+                        ...item,
+                        fotosPdf: fotosPdf.filter(Boolean)
+                    };
+                })
+            );
+
+            tablaSeccion({
+                titulo: 'Inversion y ganancia potencial por propietario',
+                columnas: [
+                    'Fotos',
+                    'Propietario',
+                    'Productos',
+                    'Stock disponible',
+                    'Inversion total',
+                    'Venta potencial',
+                    'Ganancia total estimada'
+                ],
+                filas: inventarioPropietariosPdf.length > 0
+                    ? inventarioPropietariosPdf.map((item) => [
+                        item.fotosPdf.length > 0 ? '' : 'Sin foto',
+                        textoPdf(
+                            item.propietario ||
+                            item.nombre_propietario ||
+                            'Sin propietario'
+                        ),
+                        formatoNumero(
+                            obtenerValor(
+                                item,
+                                ['productos', 'total_productos']
+                            )
+                        ),
+                        formatoNumero(
+                            obtenerValor(
+                                item,
+                                ['piezas_disponibles', 'stock_disponible']
+                            )
+                        ),
+                        textoPdf(
+                            formatoMoneda(item.inversion_total || 0)
+                        ),
+                        textoPdf(
+                            formatoMoneda(item.valor_venta_total || 0)
+                        ),
+                        textoPdf(
+                            formatoMoneda(
+                                item.ganancia_potencial_total ||
+                                item.ganancia_total ||
+                                0
+                            )
+                        )
+                    ])
+                    : [[
+                        'Sin foto',
+                        'Sin inventario disponible',
+                        '-',
+                        '-',
+                        '-',
+                        '-',
+                        '-'
+                    ]],
+                styles: {
+                    minCellHeight: 18,
+                    fontSize: 7.2
+                },
+                columnStyles: {
+                    0: { cellWidth: 44, halign: 'center' },
+                    1: { cellWidth: 55 },
+                    2: { cellWidth: 24, halign: 'center' },
+                    3: { cellWidth: 28, halign: 'center' },
+                    4: { cellWidth: 37, halign: 'right' },
+                    5: { cellWidth: 37, halign: 'right' },
+                    6: { cellWidth: 42, halign: 'right' }
+                },
+                didDrawCell: (data) => {
+                    if (
+                        data.section !== 'body' ||
+                        data.column.index !== 0
+                    ) {
+                        return;
+                    }
+
+                    const item = inventarioPropietariosPdf[data.row.index];
+
+                    if (!item?.fotosPdf?.length) {
+                        return;
+                    }
+
+                    item.fotosPdf.slice(0, 4).forEach((imagen, index) => {
+                        documento.addImage(
+                            imagen,
+                            'JPEG',
+                            data.cell.x + 1.5 + index * 10.2,
+                            data.cell.y + 3.5,
+                            9,
+                            9,
+                            undefined,
+                            'FAST'
+                        );
+                    });
+                }
             });
 
             // Ventas por puesto
@@ -782,9 +899,9 @@ function Reportes() {
                 }
             });
 
-            // Ganancia por propietario
+            // Ganancia realizada por propietario en el periodo
             tablaSeccion({
-                titulo: 'Ganancia por propietario',
+                titulo: 'Ganancia realizada por propietario',
                 columnas: [
                     'Propietario',
                     'Piezas',
@@ -1161,7 +1278,7 @@ function Reportes() {
                 <div>
                     <h1 className="text-3xl font-bold text-white">Reportes</h1>
                     <p className="mt-2 text-slate-400">
-                        Resumen de ventas, ganancias, propietarios, vendedores y productos vendidos.
+                        Resumen de ventas, inventario disponible, inversión y ganancias por propietario.
                     </p>
                 </div>
 
@@ -1268,6 +1385,117 @@ function Reportes() {
                         />
                     </div>
 
+                    <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-3">
+                        <TarjetaResumen
+                            titulo="Stock disponible actual"
+                            valor={`${formatoNumero(resumenInventario?.piezas_disponibles || 0)} piezas`}
+                            subtitulo="Existencias actuales en inventario"
+                        />
+
+                        <TarjetaResumen
+                            titulo="Inversión total actual"
+                            valor={formatoMoneda(resumenInventario?.inversion_total || 0)}
+                            subtitulo="Stock disponible × costo unitario"
+                        />
+
+                        <TarjetaResumen
+                            titulo="Ganancia total estimada"
+                            valor={formatoMoneda(resumenInventario?.ganancia_potencial_total || 0)}
+                            subtitulo="Venta potencial menos inversión"
+                        />
+                    </div>
+
+                    <div className="mb-8">
+                        <div className="mb-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-4 text-sm text-cyan-100">
+                            Esta sección utiliza el stock disponible actual del inventario. No cambia con el rango de fechas seleccionado para las ventas.
+                        </div>
+
+                        <TablaSimple
+                            titulo="Inversión y ganancia potencial por propietario"
+                            columnas={[
+                                'Propietario',
+                                'Fotos',
+                                'Productos',
+                                'Stock',
+                                'Inversión total',
+                                'Venta potencial',
+                                'Ganancia total estimada'
+                            ]}
+                            datos={inventarioPorPropietario}
+                            minWidth="min-w-[1050px]"
+                            renderFila={(item, index) => {
+                                const fotos = item.fotos || [];
+
+                                return (
+                                    <tr
+                                        key={item.id_propietario || index}
+                                        className="text-slate-300 transition hover:bg-slate-800/60"
+                                    >
+                                        <td className="px-5 py-4 font-semibold text-white">
+                                            {item.propietario || item.nombre_propietario || 'Sin propietario'}
+                                        </td>
+
+                                        <td className="px-5 py-4">
+                                            <div className="flex min-w-[150px] items-center">
+                                                {fotos.length > 0 ? (
+                                                    <>
+                                                        <div className="flex -space-x-3">
+                                                            {fotos.slice(0, 4).map((foto, fotoIndex) => (
+                                                                <img
+                                                                    key={`${foto.id_producto || foto.foto_url}-${fotoIndex}`}
+                                                                    src={foto.foto_url}
+                                                                    alt={foto.producto || 'Producto'}
+                                                                    title={foto.producto || 'Producto'}
+                                                                    className="h-12 w-12 rounded-xl border-2 border-slate-900 bg-slate-950 object-cover"
+                                                                />
+                                                            ))}
+                                                        </div>
+
+                                                        {fotos.length > 4 && (
+                                                            <span className="ml-3 rounded-full bg-slate-800 px-2.5 py-1 text-xs font-bold text-slate-300">
+                                                                +{fotos.length - 4}
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="grid h-12 w-24 place-items-center rounded-xl border border-dashed border-slate-700 text-xs text-slate-500">
+                                                        Sin fotos
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
+
+                                        <td className="px-5 py-4">
+                                            {formatoNumero(obtenerValor(item, ['productos', 'total_productos']))}
+                                        </td>
+
+                                        <td className="px-5 py-4">
+                                            <span className="rounded-full bg-cyan-500/10 px-3 py-1 font-bold text-cyan-300">
+                                                {formatoNumero(obtenerValor(item, ['piezas_disponibles', 'stock_disponible']))}
+                                            </span>
+                                        </td>
+
+                                        <td className="px-5 py-4 font-semibold text-amber-300">
+                                            {formatoMoneda(item.inversion_total || 0)}
+                                        </td>
+
+                                        <td className="px-5 py-4 font-semibold text-sky-300">
+                                            {formatoMoneda(item.valor_venta_total || 0)}
+                                        </td>
+
+                                        <td className="px-5 py-4 font-bold text-emerald-400">
+                                            {formatoMoneda(
+                                                item.ganancia_potencial_total ||
+                                                item.ganancia_total ||
+                                                0
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            }}
+                        />
+                    </div>
+
                     <div className="mb-8 grid grid-cols-1 gap-8 xl:grid-cols-2">
                         <TablaSimple
                             titulo="Ventas por puesto"
@@ -1292,7 +1520,7 @@ function Reportes() {
                         />
 
                         <TablaSimple
-                            titulo="Ganancia por propietario"
+                            titulo="Ganancia realizada por propietario"
                             columnas={['Propietario', 'Piezas', 'Total', 'Ganancia']}
                             datos={porPropietario}
                             renderFila={(item, index) => (

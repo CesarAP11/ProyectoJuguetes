@@ -24,9 +24,278 @@ function cerrarGrupo(grupo) {
     };
 }
 
+
+function redondearMoneda(valor) {
+    return Math.round((numero(valor) + Number.EPSILON) * 100) / 100;
+}
+
+async function obtenerResumenInventarioActual() {
+    const { data, error } = await supabaseAdmin
+        .from('inventario_puesto')
+        .select(`
+            id_inventario_puesto,
+            id_producto,
+            id_lote,
+            id_propietario,
+            id_puesto,
+            cantidad_disponible,
+            cantidad_reservada,
+            precio_venta_sugerido,
+            estado,
+            ultima_actualizacion,
+            puestos (
+                id_puesto,
+                nombre
+            ),
+            propietarios (
+                id_propietario,
+                nombre
+            ),
+            productos (
+                id_producto,
+                nombre,
+                descripcion,
+                foto_url,
+                foto_path,
+                categorias (
+                    id_categoria,
+                    nombre
+                )
+            ),
+            lotes_inventario (
+                id_lote,
+                codigo_interno,
+                costo_unitario,
+                precio_venta_sugerido,
+                estado
+            )
+        `)
+        .neq('estado', 'eliminado')
+        .gt('cantidad_disponible', 0)
+        .order('ultima_actualizacion', { ascending: false });
+
+    if (error) {
+        return {
+            ok: false,
+            error
+        };
+    }
+
+    const gruposPropietario = new Map();
+    const productosUnicos = new Set();
+    const inventarioDetalle = [];
+
+    const resumenInventario = {
+        propietarios: 0,
+        productos: 0,
+        lotes: 0,
+        piezas_disponibles: 0,
+        inversion_total: 0,
+        valor_venta_total: 0,
+        ganancia_potencial_total: 0,
+        fecha_corte: new Date().toISOString()
+    };
+
+    for (const item of data || []) {
+        const cantidadDisponible = Math.max(
+            0,
+            numero(item.cantidad_disponible)
+        );
+
+        if (cantidadDisponible <= 0) {
+            continue;
+        }
+
+        const costoUnitario = numero(
+            item.lotes_inventario?.costo_unitario
+        );
+
+        const precioVenta = numero(
+            item.precio_venta_sugerido ||
+            item.lotes_inventario?.precio_venta_sugerido
+        );
+
+        const inversionTotal = redondearMoneda(
+            cantidadDisponible * costoUnitario
+        );
+
+        const valorVentaTotal = redondearMoneda(
+            cantidadDisponible * precioVenta
+        );
+
+        const gananciaPotencial = redondearMoneda(
+            valorVentaTotal - inversionTotal
+        );
+
+        const idPropietario =
+            item.id_propietario ||
+            item.propietarios?.id_propietario ||
+            'sin-propietario';
+
+        const nombrePropietario =
+            item.propietarios?.nombre ||
+            'Sin propietario';
+
+        const idProducto =
+            item.id_producto ||
+            item.productos?.id_producto ||
+            'sin-producto';
+
+        const nombreProducto =
+            item.productos?.nombre ||
+            'Sin producto';
+
+        const fotoUrl = item.productos?.foto_url || null;
+        const fotoPath = item.productos?.foto_path || null;
+
+        productosUnicos.add(idProducto);
+
+        resumenInventario.piezas_disponibles += cantidadDisponible;
+        resumenInventario.inversion_total += inversionTotal;
+        resumenInventario.valor_venta_total += valorVentaTotal;
+        resumenInventario.ganancia_potencial_total += gananciaPotencial;
+        resumenInventario.lotes += 1;
+
+        if (!gruposPropietario.has(idPropietario)) {
+            gruposPropietario.set(idPropietario, {
+                id_propietario: idPropietario,
+                propietario: nombrePropietario,
+                nombre_propietario: nombrePropietario,
+                productosSet: new Set(),
+                lotesSet: new Set(),
+                piezas_disponibles: 0,
+                inversion_total: 0,
+                valor_venta_total: 0,
+                ganancia_potencial_total: 0,
+                fotos: []
+            });
+        }
+
+        const grupo = gruposPropietario.get(idPropietario);
+
+        grupo.productosSet.add(idProducto);
+        grupo.lotesSet.add(item.id_lote || item.id_inventario_puesto);
+        grupo.piezas_disponibles += cantidadDisponible;
+        grupo.inversion_total += inversionTotal;
+        grupo.valor_venta_total += valorVentaTotal;
+        grupo.ganancia_potencial_total += gananciaPotencial;
+
+        if (
+            fotoUrl &&
+            !grupo.fotos.some((foto) => foto.foto_url === fotoUrl)
+        ) {
+            grupo.fotos.push({
+                id_producto: idProducto,
+                producto: nombreProducto,
+                foto_url: fotoUrl,
+                foto_path: fotoPath
+            });
+        }
+
+        inventarioDetalle.push({
+            id_inventario_puesto: item.id_inventario_puesto,
+            id_producto: idProducto,
+            id_lote: item.id_lote,
+            id_propietario: idPropietario,
+            propietario: nombrePropietario,
+            producto: nombreProducto,
+            descripcion: item.productos?.descripcion || '',
+            categoria:
+                item.productos?.categorias?.nombre ||
+                'Sin categoría',
+            foto_url: fotoUrl,
+            foto_path: fotoPath,
+            codigo_interno:
+                item.lotes_inventario?.codigo_interno ||
+                null,
+            puesto:
+                item.puestos?.nombre ||
+                'Sin puesto',
+            cantidad_disponible: cantidadDisponible,
+            cantidad_reservada: numero(item.cantidad_reservada),
+            costo_unitario: redondearMoneda(costoUnitario),
+            precio_venta_sugerido: redondearMoneda(precioVenta),
+            inversion_total: inversionTotal,
+            valor_venta_total: valorVentaTotal,
+            ganancia_potencial: gananciaPotencial,
+            ultima_actualizacion: item.ultima_actualizacion || null
+        });
+    }
+
+    const inventarioPorPropietario = Array
+        .from(gruposPropietario.values())
+        .map((grupo) => ({
+            id_propietario: grupo.id_propietario,
+            propietario: grupo.propietario,
+            nombre_propietario: grupo.nombre_propietario,
+            productos: grupo.productosSet.size,
+            total_productos: grupo.productosSet.size,
+            lotes: grupo.lotesSet.size,
+            total_lotes: grupo.lotesSet.size,
+            piezas_disponibles: grupo.piezas_disponibles,
+            stock_disponible: grupo.piezas_disponibles,
+            inversion_total: redondearMoneda(
+                grupo.inversion_total
+            ),
+            valor_venta_total: redondearMoneda(
+                grupo.valor_venta_total
+            ),
+            ganancia_potencial_total: redondearMoneda(
+                grupo.ganancia_potencial_total
+            ),
+            ganancia_total: redondearMoneda(
+                grupo.ganancia_potencial_total
+            ),
+            fotos: grupo.fotos.slice(0, 6)
+        }))
+        .sort((a, b) => b.inversion_total - a.inversion_total);
+
+    resumenInventario.propietarios = inventarioPorPropietario.length;
+    resumenInventario.productos = productosUnicos.size;
+    resumenInventario.inversion_total = redondearMoneda(
+        resumenInventario.inversion_total
+    );
+    resumenInventario.valor_venta_total = redondearMoneda(
+        resumenInventario.valor_venta_total
+    );
+    resumenInventario.ganancia_potencial_total = redondearMoneda(
+        resumenInventario.ganancia_potencial_total
+    );
+
+    inventarioDetalle.sort((a, b) => {
+        const propietarioComparado = a.propietario.localeCompare(
+            b.propietario,
+            'es'
+        );
+
+        if (propietarioComparado !== 0) {
+            return propietarioComparado;
+        }
+
+        return a.producto.localeCompare(b.producto, 'es');
+    });
+
+    return {
+        ok: true,
+        resumenInventario,
+        inventarioPorPropietario,
+        inventarioDetalle
+    };
+}
+
 async function obtenerResumenReportes(req, res) {
     try {
         const { fecha_inicio, fecha_fin } = req.query;
+
+        const inventarioActual = await obtenerResumenInventarioActual();
+
+        if (!inventarioActual.ok) {
+            return res.status(500).json({
+                ok: false,
+                mensaje: 'Error al consultar la inversión del inventario actual.',
+                error: inventarioActual.error?.message || 'Error desconocido.'
+            });
+        }
 
         let queryJornadas = supabaseAdmin
             .from('jornadas')
@@ -68,7 +337,10 @@ async function obtenerResumenReportes(req, res) {
                 porVendedor: [],
                 porMetodoPago: [],
                 productosTop: [],
-                detalleVentas: []
+                detalleVentas: [],
+                resumenInventario: inventarioActual.resumenInventario,
+                inventarioPorPropietario: inventarioActual.inventarioPorPropietario,
+                inventarioDetalle: inventarioActual.inventarioDetalle
             });
         }
 
@@ -104,7 +376,10 @@ async function obtenerResumenReportes(req, res) {
                 porVendedor: [],
                 porMetodoPago: [],
                 productosTop: [],
-                detalleVentas: []
+                detalleVentas: [],
+                resumenInventario: inventarioActual.resumenInventario,
+                inventarioPorPropietario: inventarioActual.inventarioPorPropietario,
+                inventarioDetalle: inventarioActual.inventarioDetalle
             });
         }
 
@@ -549,7 +824,10 @@ async function obtenerResumenReportes(req, res) {
             porVendedor,
             porMetodoPago,
             productosTop,
-            detalleVentas
+            detalleVentas,
+            resumenInventario: inventarioActual.resumenInventario,
+            inventarioPorPropietario: inventarioActual.inventarioPorPropietario,
+            inventarioDetalle: inventarioActual.inventarioDetalle
         });
 
     } catch (error) {
