@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
     obtenerCatalogosVentas,
@@ -27,6 +27,9 @@ function Ventas() {
     const [codigoManual, setCodigoManual] = useState('');
     const [scannerAbierto, setScannerAbierto] = useState(false);
     const [buscandoCodigo, setBuscandoCodigo] = useState(false);
+    const [productosMovilAbiertos, setProductosMovilAbiertos] = useState(false);
+
+    const cobroRef = useRef(null);
 
     const [cargando, setCargando] = useState(true);
     const [cargandoInventario, setCargandoInventario] = useState(false);
@@ -38,6 +41,12 @@ function Ventas() {
     const totalVenta = useMemo(() => {
         return carrito.reduce((suma, item) => {
             return suma + Number(item.cantidad || 0) * Number(item.precio_unitario_venta || 0);
+        }, 0);
+    }, [carrito]);
+
+    const totalArticulos = useMemo(() => {
+        return carrito.reduce((suma, item) => {
+            return suma + Number(item.cantidad || 0);
         }, 0);
     }, [carrito]);
 
@@ -240,6 +249,17 @@ function Ventas() {
         setScannerAbierto(true);
     }
 
+    const irAlCobro = useCallback(() => {
+        setScannerAbierto(false);
+
+        window.setTimeout(() => {
+            cobroRef.current?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }, 120);
+    }, []);
+
     function quitarProducto(idInventario) {
         setCarrito((prev) => prev.filter((item) => item.id_inventario_puesto !== idInventario));
     }
@@ -426,7 +446,7 @@ function Ventas() {
     }
 
     return (
-        <section>
+        <section className="pb-28 md:pb-0">
             <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Ventas</h1>
@@ -499,8 +519,8 @@ function Ventas() {
                             Agregar producto mediante código QR
                         </h2>
                         <p className="mt-2 text-sm text-slate-400">
-                            Cada lectura agrega una unidad. El sistema valida la jornada,
-                            el puesto y la existencia disponible.
+                            Escanea el código, revisa los datos y confirma antes de agregar.
+                            El sistema valida la jornada, el puesto y la existencia disponible.
                         </p>
                     </div>
 
@@ -541,9 +561,38 @@ function Ventas() {
             </div>
 
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.4fr_1fr]">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                    <h2 className="mb-5 text-xl font-bold text-white">Productos disponibles</h2>
+                <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+                    <button
+                        type="button"
+                        onClick={() => setProductosMovilAbiertos((actual) => !actual)}
+                        className="flex w-full items-center justify-between gap-4 p-5 text-left md:cursor-default md:p-6"
+                        aria-expanded={productosMovilAbiertos}
+                        aria-controls="productos-disponibles-ventas"
+                    >
+                        <div>
+                            <h2 className="text-xl font-bold text-white">
+                                Productos disponibles
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-400 md:hidden">
+                                {inventario.length} producto(s). Toca para{' '}
+                                {productosMovilAbiertos ? 'ocultar' : 'mostrar'}.
+                            </p>
+                        </div>
 
+                        <span
+                            className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-700 text-xl text-cyan-300 transition-transform md:hidden ${
+                                productosMovilAbiertos ? 'rotate-180' : ''
+                            }`}
+                            aria-hidden="true"
+                        >
+                            ⌄
+                        </span>
+                    </button>
+
+                    <div
+                        id="productos-disponibles-ventas"
+                        className={`${productosMovilAbiertos ? 'block' : 'hidden'} border-t border-slate-800 p-5 md:block md:p-6`}
+                    >
                     {cargando || cargandoInventario ? (
                         <div className="rounded-xl border border-slate-800 bg-slate-950 p-8 text-center text-slate-300">
                             Cargando productos...
@@ -613,15 +662,16 @@ function Ventas() {
                             ))}
                         </div>
                     )}
+                    </div>
                 </div>
 
-                <div className="space-y-8">
+                <div ref={cobroRef} className="scroll-mt-24 space-y-8">
                     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
                         <div className="mb-5 flex items-center justify-between">
                             <h2 className="text-xl font-bold text-white">Carrito</h2>
 
                             <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-bold text-emerald-400">
-                                {carrito.length} producto(s)
+                                {totalArticulos} pieza(s)
                             </span>
                         </div>
 
@@ -874,11 +924,41 @@ function Ventas() {
                 </div>
             </div>
 
+            <div
+                className="fixed inset-x-0 bottom-0 z-[90] border-t border-slate-700 bg-slate-950/95 px-4 pt-3 shadow-[0_-12px_35px_rgba(0,0,0,0.45)] backdrop-blur md:hidden"
+                style={{
+                    paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))'
+                }}
+            >
+                <div className="mx-auto flex max-w-xl items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold uppercase tracking-wider text-slate-400">
+                            Carrito
+                        </p>
+                        <p className="truncate text-sm font-bold text-white">
+                            {totalArticulos === 0
+                                ? 'Sin productos'
+                                : `${totalArticulos} pieza(s) · ${formatoMoneda(totalVenta)}`}
+                        </p>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={irAlCobro}
+                        disabled={carrito.length === 0}
+                        className="shrink-0 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Ir al cobro
+                    </button>
+                </div>
+            </div>
+
             <EscanerQrModal
                 abierto={scannerAbierto}
                 procesando={buscandoCodigo}
                 onCodigo={consultarProductoPorCodigo}
                 onAgregar={confirmarProductoEscaneado}
+                onIrAlCobro={irAlCobro}
                 onCerrar={() => setScannerAbierto(false)}
             />
         </section>

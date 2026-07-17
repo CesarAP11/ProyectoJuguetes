@@ -97,6 +97,7 @@ function EscanerQrModal({
     procesando,
     onCodigo,
     onAgregar,
+    onIrAlCobro,
     onCerrar
 }) {
     const lectorRef = useRef(null);
@@ -109,6 +110,7 @@ function EscanerQrModal({
     const [estado, setEstado] = useState('Preparando cámara...');
     const [error, setError] = useState('');
     const [productoEncontrado, setProductoEncontrado] = useState(null);
+    const [productoAgregado, setProductoAgregado] = useState(null);
     const [agregando, setAgregando] = useState(false);
 
     useEffect(() => {
@@ -125,6 +127,7 @@ function EscanerQrModal({
         }
 
         setProductoEncontrado(null);
+        setProductoAgregado(null);
         setAgregando(false);
         setError('');
         setEstado('Preparando cámara...');
@@ -136,7 +139,7 @@ function EscanerQrModal({
     }, [abierto]);
 
     useEffect(() => {
-        if (!abierto || productoEncontrado) {
+        if (!abierto || productoEncontrado || productoAgregado) {
             return undefined;
         }
 
@@ -263,7 +266,7 @@ function EscanerQrModal({
 
             detener();
         };
-    }, [abierto, onCodigo, productoEncontrado]);
+    }, [abierto, onCodigo, productoAgregado, productoEncontrado]);
 
     async function agregarAlCarrito() {
         if (!productoEncontrado || agregando) {
@@ -274,13 +277,14 @@ function EscanerQrModal({
             setAgregando(true);
             setError('');
 
-            await onAgregar(productoEncontrado);
+            const productoConfirmado = productoEncontrado;
+
+            await onAgregar(productoConfirmado);
 
             setProductoEncontrado(null);
-            productoPendienteRef.current = false;
-            setEstado(
-                'Producto agregado al carrito. Retira el QR y acerca el siguiente.'
-            );
+            setProductoAgregado(productoConfirmado);
+            productoPendienteRef.current = true;
+            setEstado('Producto agregado correctamente.');
         } catch (errorAgregar) {
             setError(
                 errorAgregar.message ||
@@ -291,11 +295,27 @@ function EscanerQrModal({
         }
     }
 
-    function descartarProducto() {
+    function escanearOtro() {
         setProductoEncontrado(null);
+        setProductoAgregado(null);
         setError('');
         productoPendienteRef.current = false;
+        ultimoCodigoRef.current = '';
+        codigoFueraCamaraRef.current = true;
         setEstado('Preparando cámara para otro producto...');
+    }
+
+    function irAlCobro() {
+        setProductoAgregado(null);
+        setProductoEncontrado(null);
+        productoPendienteRef.current = false;
+
+        if (typeof onIrAlCobro === 'function') {
+            onIrAlCobro();
+            return;
+        }
+
+        onCerrar();
     }
 
     if (!abierto) {
@@ -304,7 +324,47 @@ function EscanerQrModal({
 
     return (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/90 p-4 backdrop-blur-sm">
-            {productoEncontrado ? (
+            {productoAgregado ? (
+                <section className="w-full max-w-xl">
+                    <article className="overflow-hidden rounded-3xl border border-emerald-500/60 bg-slate-950 shadow-2xl">
+                        <div className="border-b border-slate-800 p-5 text-center sm:p-7">
+                            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-3xl font-black text-slate-950 shadow-lg shadow-emerald-500/20">
+                                ✓
+                            </div>
+
+                            <p className="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
+                                Producto agregado
+                            </p>
+
+                            <h2 className="mt-2 text-2xl font-bold text-white">
+                                {productoAgregado.producto}
+                            </h2>
+
+                            <p className="mt-2 text-sm text-slate-400">
+                                Elige si deseas continuar escaneando o pasar directamente al cobro.
+                            </p>
+                        </div>
+
+                        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+                            <button
+                                type="button"
+                                onClick={escanearOtro}
+                                className="rounded-xl border border-cyan-400 px-4 py-3 font-bold text-cyan-200 transition hover:bg-cyan-400 hover:text-slate-950"
+                            >
+                                Escanear otro
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={irAlCobro}
+                                className="rounded-xl bg-emerald-500 px-4 py-3 font-bold text-slate-950 transition hover:bg-emerald-400"
+                            >
+                                Ir al cobro
+                            </button>
+                        </div>
+                    </article>
+                </section>
+            ) : productoEncontrado ? (
                 <section className="max-h-[94vh] w-full max-w-xl overflow-y-auto">
                     <article className="overflow-hidden rounded-3xl border border-emerald-500/50 bg-slate-950 shadow-2xl">
                         <div className="flex items-start gap-4 border-b border-slate-800 p-4 sm:p-5">
@@ -381,7 +441,7 @@ function EscanerQrModal({
                         <div className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-2 sm:p-5">
                             <button
                                 type="button"
-                                onClick={descartarProducto}
+                                onClick={escanearOtro}
                                 disabled={agregando}
                                 className="rounded-xl border border-slate-700 px-4 py-3 font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:opacity-60"
                             >
