@@ -7,7 +7,7 @@ import {
     registrarVenta
 } from '../api/ventas.api';
 
-import EscanerQrModal from '../components/qr/EscanerQrModal';
+import EscanerQrModal, { prepararSonidoQr } from '../components/qr/EscanerQrModal';
 
 const pagoInicial = {
     id_metodo_pago: '',
@@ -154,7 +154,7 @@ function Ventas() {
         });
     }, []);
 
-    const procesarCodigoQr = useCallback(async (codigo) => {
+    const consultarProductoPorCodigo = useCallback(async (codigo) => {
         if (!idJornada) {
             throw new Error('Selecciona una jornada antes de escanear.');
         }
@@ -174,15 +174,6 @@ function Ventas() {
                 codigoLimpio
             );
 
-            agregarProducto(respuesta.producto);
-            setCodigoManual('');
-
-            mostrarMensaje(
-                'success',
-                respuesta.mensaje ||
-                `${respuesta.producto?.producto || 'Producto'} agregado al carrito.`
-            );
-
             return respuesta.producto;
         } catch (error) {
             mostrarMensaje(
@@ -193,17 +184,51 @@ function Ventas() {
         } finally {
             setBuscandoCodigo(false);
         }
-    }, [agregarProducto, idJornada]);
+    }, [idJornada]);
 
     async function handleCodigoManual(event) {
         event.preventDefault();
 
         try {
-            await procesarCodigoQr(codigoManual);
+            const producto = await consultarProductoPorCodigo(codigoManual);
+
+            agregarProducto(producto);
+            setCodigoManual('');
+
+            mostrarMensaje(
+                'success',
+                `${producto?.producto || 'Producto'} agregado al carrito.`
+            );
         } catch {
-            // El mensaje ya se muestra dentro de procesarCodigoQr.
+            // El mensaje ya se muestra dentro de consultarProductoPorCodigo.
         }
     }
+
+    const confirmarProductoEscaneado = useCallback(async (producto) => {
+        const productoEnCarrito = carrito.find(
+            (item) =>
+                item.id_inventario_puesto === producto.id_inventario_puesto
+        );
+
+        if (
+            productoEnCarrito &&
+            Number(productoEnCarrito.cantidad || 0) >=
+                Number(producto.cantidad_disponible || 0)
+        ) {
+            const mensajeStock =
+                `No hay más piezas disponibles de ${producto.producto}.`;
+
+            mostrarMensaje('danger', mensajeStock);
+            throw new Error(mensajeStock);
+        }
+
+        agregarProducto(producto);
+
+        mostrarMensaje(
+            'success',
+            `${producto?.producto || 'Producto'} agregado al carrito.`
+        );
+    }, [agregarProducto, carrito]);
 
     function abrirScanner() {
         if (!idJornada) {
@@ -211,6 +236,7 @@ function Ventas() {
             return;
         }
 
+        prepararSonidoQr();
         setScannerAbierto(true);
     }
 
@@ -851,7 +877,8 @@ function Ventas() {
             <EscanerQrModal
                 abierto={scannerAbierto}
                 procesando={buscandoCodigo}
-                onCodigo={procesarCodigoQr}
+                onCodigo={consultarProductoPorCodigo}
+                onAgregar={confirmarProductoEscaneado}
                 onCerrar={() => setScannerAbierto(false)}
             />
         </section>

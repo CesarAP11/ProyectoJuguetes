@@ -3,22 +3,140 @@ import { Html5Qrcode } from 'html5-qrcode';
 
 const ID_LECTOR = 'lector-qr-juguetesfun';
 
-function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
+let contextoAudioQr = null;
+
+function obtenerContextoAudio() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const AudioContexto = window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContexto) {
+        return null;
+    }
+
+    if (!contextoAudioQr || contextoAudioQr.state === 'closed') {
+        contextoAudioQr = new AudioContexto();
+    }
+
+    return contextoAudioQr;
+}
+
+export function prepararSonidoQr() {
+    try {
+        const contexto = obtenerContextoAudio();
+
+        if (!contexto) {
+            return;
+        }
+
+        contexto.resume().catch(() => {});
+
+        const oscilador = contexto.createOscillator();
+        const ganancia = contexto.createGain();
+        const ahora = contexto.currentTime;
+
+        ganancia.gain.setValueAtTime(0.00001, ahora);
+        oscilador.connect(ganancia);
+        ganancia.connect(contexto.destination);
+        oscilador.start(ahora);
+        oscilador.stop(ahora + 0.02);
+    } catch (error) {
+        console.warn('No se pudo preparar el sonido del escáner QR:', error);
+    }
+}
+
+async function reproducirSonidoCheck() {
+    try {
+        const contexto = obtenerContextoAudio();
+
+        if (!contexto) {
+            return;
+        }
+
+        if (contexto.state === 'suspended') {
+            await contexto.resume();
+        }
+
+        const ahora = contexto.currentTime;
+        const gananciaGeneral = contexto.createGain();
+
+        gananciaGeneral.gain.setValueAtTime(0.0001, ahora);
+        gananciaGeneral.gain.exponentialRampToValueAtTime(0.24, ahora + 0.012);
+        gananciaGeneral.gain.exponentialRampToValueAtTime(0.0001, ahora + 0.28);
+        gananciaGeneral.connect(contexto.destination);
+
+        const primerTono = contexto.createOscillator();
+        primerTono.type = 'sine';
+        primerTono.frequency.setValueAtTime(740, ahora);
+        primerTono.connect(gananciaGeneral);
+        primerTono.start(ahora);
+        primerTono.stop(ahora + 0.11);
+
+        const segundoTono = contexto.createOscillator();
+        segundoTono.type = 'sine';
+        segundoTono.frequency.setValueAtTime(1046, ahora + 0.1);
+        segundoTono.connect(gananciaGeneral);
+        segundoTono.start(ahora + 0.1);
+        segundoTono.stop(ahora + 0.28);
+    } catch (error) {
+        console.warn('No se pudo reproducir el sonido de confirmación QR:', error);
+    }
+}
+
+function formatoMoneda(valor) {
+    return Number(valor || 0).toLocaleString('es-MX', {
+        style: 'currency',
+        currency: 'MXN'
+    });
+}
+
+function EscanerQrModal({
+    abierto,
+    procesando,
+    onCodigo,
+    onAgregar,
+    onCerrar
+}) {
     const lectorRef = useRef(null);
     const procesandoRef = useRef(false);
+    const productoPendienteRef = useRef(false);
     const ultimoCodigoRef = useRef('');
     const ultimaDeteccionRef = useRef(0);
     const codigoFueraCamaraRef = useRef(true);
 
     const [estado, setEstado] = useState('Preparando cámara...');
     const [error, setError] = useState('');
+    const [productoEncontrado, setProductoEncontrado] = useState(null);
+    const [agregando, setAgregando] = useState(false);
 
     useEffect(() => {
         procesandoRef.current = Boolean(procesando);
     }, [procesando]);
 
     useEffect(() => {
+        productoPendienteRef.current = Boolean(productoEncontrado);
+    }, [productoEncontrado]);
+
+    useEffect(() => {
         if (!abierto) {
+            return;
+        }
+
+        setProductoEncontrado(null);
+        setAgregando(false);
+        setError('');
+        setEstado('Preparando cámara...');
+        productoPendienteRef.current = false;
+        procesandoRef.current = false;
+        ultimoCodigoRef.current = '';
+        ultimaDeteccionRef.current = 0;
+        codigoFueraCamaraRef.current = true;
+    }, [abierto]);
+
+    useEffect(() => {
+        if (!abierto || productoEncontrado) {
             return undefined;
         }
 
@@ -46,7 +164,11 @@ function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
 
                         ultimaDeteccionRef.current = ahora;
 
-                        if (!codigo || procesandoRef.current) {
+                        if (
+                            !codigo ||
+                            procesandoRef.current ||
+                            productoPendienteRef.current
+                        ) {
                             return;
                         }
 
@@ -60,16 +182,27 @@ function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
                         ultimoCodigoRef.current = codigo;
                         codigoFueraCamaraRef.current = false;
                         procesandoRef.current = true;
-                        setEstado(`Código leído: ${codigo}`);
+                        setError('');
+                        setEstado(`Consultando producto: ${codigo}`);
 
                         try {
-                            await onCodigo(codigo);
+                            const producto = await onCodigo(codigo);
 
-                            if (navigator.vibrate) {
-                                navigator.vibrate(120);
+                            if (!producto) {
+                                throw new Error(
+                                    'No se recibió la información del producto.'
+                                );
                             }
 
-                            setEstado('Producto agregado. Retira el QR y acerca el siguiente.');
+                            productoPendienteRef.current = true;
+                            setProductoEncontrado(producto);
+                            setEstado('Producto encontrado.');
+
+                            reproducirSonidoCheck();
+
+                            if (navigator.vibrate) {
+                                navigator.vibrate([90, 45, 120]);
+                            }
                         } catch (errorCodigo) {
                             setError(
                                 errorCodigo.message ||
@@ -81,16 +214,16 @@ function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
                         }
                     },
                     () => {
-                        if (
-                            Date.now() - ultimaDeteccionRef.current > 700
-                        ) {
+                        if (Date.now() - ultimaDeteccionRef.current > 700) {
                             codigoFueraCamaraRef.current = true;
                         }
                     }
                 );
 
                 if (!cancelado) {
-                    setEstado('Cámara activa. Coloca el QR dentro del recuadro.');
+                    setEstado(
+                        'Cámara activa. Coloca el QR dentro del recuadro.'
+                    );
                 }
             } catch (errorCamara) {
                 console.error('Error al iniciar cámara QR:', errorCamara);
@@ -111,21 +244,59 @@ function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
 
             const detener = async () => {
                 try {
-                    if (lectorRef.current?.isScanning) {
-                        await lectorRef.current.stop();
+                    if (lectorRef.current === lector && lector.isScanning) {
+                        await lector.stop();
                     }
 
-                    await lectorRef.current?.clear();
+                    await lector.clear();
                 } catch (errorDetener) {
-                    console.warn('No se pudo limpiar completamente el lector QR:', errorDetener);
+                    console.warn(
+                        'No se pudo limpiar completamente el lector QR:',
+                        errorDetener
+                    );
                 } finally {
-                    lectorRef.current = null;
+                    if (lectorRef.current === lector) {
+                        lectorRef.current = null;
+                    }
                 }
             };
 
             detener();
         };
-    }, [abierto, onCodigo]);
+    }, [abierto, onCodigo, productoEncontrado]);
+
+    async function agregarAlCarrito() {
+        if (!productoEncontrado || agregando) {
+            return;
+        }
+
+        try {
+            setAgregando(true);
+            setError('');
+
+            await onAgregar(productoEncontrado);
+
+            setProductoEncontrado(null);
+            productoPendienteRef.current = false;
+            setEstado(
+                'Producto agregado al carrito. Retira el QR y acerca el siguiente.'
+            );
+        } catch (errorAgregar) {
+            setError(
+                errorAgregar.message ||
+                'No se pudo agregar el producto al carrito.'
+            );
+        } finally {
+            setAgregando(false);
+        }
+    }
+
+    function descartarProducto() {
+        setProductoEncontrado(null);
+        setError('');
+        productoPendienteRef.current = false;
+        setEstado('Preparando cámara para otro producto...');
+    }
 
     if (!abierto) {
         return null;
@@ -133,44 +304,143 @@ function EscanerQrModal({ abierto, procesando, onCodigo, onCerrar }) {
 
     return (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/90 p-4 backdrop-blur-sm">
-            <section className="max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
-                <div className="flex items-start justify-between gap-4">
-                    <div>
-                        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400">
-                            Cámara trasera
-                        </p>
-                        <h2 className="mt-2 text-2xl font-bold text-white">
-                            Escanear producto
-                        </h2>
+            {productoEncontrado ? (
+                <section className="max-h-[94vh] w-full max-w-xl overflow-y-auto">
+                    <article className="overflow-hidden rounded-3xl border border-emerald-500/50 bg-slate-950 shadow-2xl">
+                        <div className="flex items-start gap-4 border-b border-slate-800 p-4 sm:p-5">
+                            {productoEncontrado.foto_url ? (
+                                <img
+                                    src={productoEncontrado.foto_url}
+                                    alt={productoEncontrado.producto}
+                                    className="h-20 w-20 shrink-0 rounded-xl border border-slate-700 object-cover sm:h-24 sm:w-24"
+                                />
+                            ) : (
+                                <div className="grid h-20 w-20 shrink-0 place-items-center rounded-xl border border-dashed border-slate-700 text-center text-xs text-slate-500 sm:h-24 sm:w-24">
+                                    Sin foto
+                                </div>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-400">
+                                    Producto encontrado
+                                </p>
+                                <h2 className="mt-1 break-words text-xl font-bold text-white sm:text-2xl">
+                                    {productoEncontrado.producto}
+                                </h2>
+                                <p className="mt-1 break-all text-xs text-slate-500">
+                                    {productoEncontrado.codigo_interno}
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={onCerrar}
+                                className="shrink-0 rounded-xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white sm:px-4 sm:text-sm"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+
+                        <dl className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
+                            <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                                <dt className="text-xs uppercase tracking-wider text-slate-500">
+                                    Propietario
+                                </dt>
+                                <dd className="mt-1 font-semibold text-white">
+                                    {productoEncontrado.propietario}
+                                </dd>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                                <dt className="text-xs uppercase tracking-wider text-slate-500">
+                                    Stock disponible
+                                </dt>
+                                <dd className="mt-1 text-lg font-bold text-cyan-300">
+                                    {productoEncontrado.cantidad_disponible} pieza(s)
+                                </dd>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-800 bg-slate-900 p-3 sm:col-span-2">
+                                <dt className="text-xs uppercase tracking-wider text-slate-500">
+                                    Precio de venta
+                                </dt>
+                                <dd className="mt-1 text-2xl font-bold text-emerald-400">
+                                    {formatoMoneda(
+                                        productoEncontrado.precio_venta_sugerido
+                                    )}
+                                </dd>
+                            </div>
+                        </dl>
+
+                        {error && (
+                            <div className="mx-4 mb-4 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3 text-sm text-red-300 sm:mx-5">
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-2 sm:p-5">
+                            <button
+                                type="button"
+                                onClick={descartarProducto}
+                                disabled={agregando}
+                                className="rounded-xl border border-slate-700 px-4 py-3 font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:opacity-60"
+                            >
+                                Escanear otro
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={agregarAlCarrito}
+                                disabled={agregando}
+                                className="rounded-xl bg-emerald-500 px-4 py-3 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                            >
+                                {agregando
+                                    ? 'Agregando...'
+                                    : 'Agregar al carrito'}
+                            </button>
+                        </div>
+                    </article>
+                </section>
+            ) : (
+                <section className="max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-900 p-5 shadow-2xl sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400">
+                                Cámara trasera
+                            </p>
+                            <h2 className="mt-2 text-2xl font-bold text-white">
+                                Escanear producto
+                            </h2>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={onCerrar}
+                            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
+                        >
+                            Cerrar
+                        </button>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={onCerrar}
-                        className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
-                    >
-                        Cerrar
-                    </button>
-                </div>
-
-                <div className="mt-6 overflow-hidden rounded-2xl border border-slate-700 bg-black p-2">
-                    <div id={ID_LECTOR} className="min-h-72 w-full" />
-                </div>
-
-                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-300">
-                    {procesando ? 'Procesando producto...' : estado}
-                </div>
-
-                {error && (
-                    <div className="mt-4 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                        {error}
+                    <div className="mt-6 overflow-hidden rounded-2xl border border-slate-700 bg-black p-2">
+                        <div id={ID_LECTOR} className="min-h-64 w-full" />
                     </div>
-                )}
 
-                <p className="mt-4 text-xs leading-5 text-slate-500">
-                    Para escanear dos piezas del mismo lote, retira el QR de la cámara y vuelve a acercarlo. Cada lectura válida agrega una unidad al carrito.
-                </p>
-            </section>
+                    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-300">
+                        {procesando ? 'Consultando producto...' : estado}
+                    </div>
+
+                    {error && (
+                        <div className="mt-4 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                            {error}
+                        </div>
+                    )}
+
+                    <p className="mt-4 text-xs leading-5 text-slate-500">
+                        Cuando el sistema encuentre un producto, la cámara se cerrará y aparecerán sus datos para que confirmes si deseas agregarlo al carrito.
+                    </p>
+                </section>
+            )}
         </div>
     );
 }
